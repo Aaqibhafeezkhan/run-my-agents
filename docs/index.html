@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Run My Agents | Flisk</title>
+  <meta name="description" content="Run many Claude Code sessions on one repo, and stop them overwriting each other. A free plugin. No server, no account, no keys.">
+  <meta property="og:title" content="Run My Agents">
+  <meta property="og:description" content="Run many Claude Code sessions on one repo, and stop them overwriting each other.">
+  <meta name="color-scheme" content="dark light">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <script>
+    try {
+      var t = localStorage.getItem("theme");
+      if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+    } catch (e) {}
+  </script>
+  <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    /* Same family as roadmap.flisk.si: Satoshi, JetBrains Mono, one green accent, dark first. */
+    :root {
+      color-scheme: dark;
+      --bg: #08080c;
+      --bg-glow: rgba(34, 197, 94, 0.07);
+      --surface: #111117;
+      --surface-2: #17171f;
+      --text: #ececf1;
+      --muted: rgba(236, 236, 241, 0.7);
+      --faint: rgba(236, 236, 241, 0.48);
+      --line: rgba(255, 255, 255, 0.08);
+      --line-strong: rgba(255, 255, 255, 0.2);
+      --accent: #22c55e;
+      --accent-ink: #04120a;
+      --accent-text: #6ee7a0;
+      --accent-tint: rgba(34, 197, 94, 0.12);
+      --warn: #f59e0b;
+      --shadow: 0 18px 50px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.4);
+      --font-body: "Satoshi", "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+      --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    }
+    :root[data-theme="light"] {
+      color-scheme: light;
+      --bg: #f6f6f4;
+      --bg-glow: rgba(34, 197, 94, 0.08);
+      --surface: #ffffff;
+      --surface-2: #f0f0ed;
+      --text: #16161a;
+      --muted: #52525b;
+      --faint: #71717a;
+      --line: rgba(0, 0, 0, 0.09);
+      --line-strong: rgba(0, 0, 0, 0.22);
+      --accent-text: #15803d;
+      --accent-tint: rgba(34, 197, 94, 0.1);
+      --warn: #b45309;
+      --shadow: 0 18px 50px rgba(0, 0, 0, 0.16), 0 2px 8px rgba(0, 0, 0, 0.08);
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(60rem 30rem at 85% -10%, var(--bg-glow), transparent 70%),
+        radial-gradient(40rem 24rem at -10% 20%, rgba(14, 165, 233, 0.05), transparent 70%),
+        var(--bg);
+      color: var(--text);
+      font-family: var(--font-body);
+      font-size: 1rem;
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--accent-text); }
+    .wrap { max-width: 56rem; margin: 0 auto; padding: 0 16px; }
+    header { border-bottom: 1px solid var(--line); }
+    .bar { display: flex; align-items: center; gap: 12px; height: 56px; }
+    .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; color: var(--text); text-decoration: none; }
+    .bar nav { margin-left: auto; display: flex; gap: 16px; align-items: center; }
+    .bar nav a { color: var(--muted); text-decoration: none; font-size: 0.9rem; }
+    .bar nav a:hover { color: var(--text); }
+    .theme { background: none; border: 1px solid var(--line-strong); color: var(--muted); border-radius: 999px; padding: 4px 10px; font: inherit; font-size: 0.8rem; cursor: pointer; }
+
+    .hero { padding: 72px 0 40px; }
+    .pill { display: inline-block; font-family: var(--font-mono); font-size: 0.75rem; color: var(--accent-text); background: var(--accent-tint); border-radius: 999px; padding: 4px 12px; }
+    h1 { font-size: clamp(2.4rem, 7vw, 4rem); line-height: 1.05; letter-spacing: -0.03em; margin: 18px 0 16px; font-weight: 900; }
+    h1 span { color: var(--accent); }
+    .lede { font-size: 1.2rem; color: var(--muted); max-width: 38rem; margin: 0 0 28px; }
+
+    .install { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); overflow: hidden; }
+    .install .top { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--line); font-size: 0.8rem; color: var(--faint); }
+    .install pre { margin: 0; padding: 16px; font-family: var(--font-mono); font-size: 0.9rem; overflow-x: auto; }
+    .install .p { color: var(--faint); user-select: none; }
+    .copy { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 999px; padding: 5px 14px; font: inherit; font-weight: 700; font-size: 0.8rem; cursor: pointer; }
+    .meta { margin-top: 14px; color: var(--faint); font-size: 0.9rem; }
+
+    h2 { font-size: 1.6rem; letter-spacing: -0.02em; margin: 0 0 8px; }
+    section { padding: 40px 0; }
+    .sub { color: var(--muted); margin: 0 0 24px; }
+
+    .term { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 18px; font-family: var(--font-mono); font-size: 0.85rem; line-height: 1.7; }
+    .term .who { color: var(--faint); }
+    .term .ok { color: var(--accent-text); }
+    .term .warn { color: var(--warn); }
+
+    .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 14px; }
+    .card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 20px; }
+    .card .n { font-family: var(--font-mono); color: var(--accent-text); font-size: 0.8rem; }
+    .card h3 { margin: 6px 0 6px; font-size: 1.05rem; }
+    .card p { margin: 0; color: var(--muted); font-size: 0.95rem; }
+
+    ul.limits { margin: 0; padding-left: 20px; color: var(--muted); }
+    ul.limits li { margin: 4px 0; }
+    footer { border-top: 1px solid var(--line); padding: 24px 0 40px; color: var(--faint); font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap bar">
+      <a class="brand" href="https://flisk.sh"><img src="favicon.svg" alt="" width="20" height="20"><span>Flisk</span></a>
+      <nav>
+        <a href="https://github.com/flisk-sh/run-my-agents">GitHub</a>
+        <button class="theme" type="button" id="theme">Light</button>
+      </nav>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <div class="hero">
+      <span class="pill">Free Claude Code plugin</span>
+      <h1>Run My <span>Agents</span></h1>
+      <p class="lede">Run many Claude Code sessions on one repo, and stop them overwriting each other's work.</p>
+
+      <div class="install">
+        <div class="top"><span>In Claude Code</span><button class="copy" type="button" id="copy">Copy</button></div>
+        <pre id="cmd"><span class="p">&gt; </span>/plugin marketplace add flisk-sh/run-my-agents
+<span class="p">&gt; </span>/plugin install run-my-agents@run-my-agents</pre>
+      </div>
+      <p class="meta">No server. No account. No keys. Everything stays on your computer.</p>
+    </div>
+
+    <section>
+      <h2>What your agent sees</h2>
+      <p class="sub">Session 2 tries to edit a file session 1 changed two minutes ago.</p>
+      <div class="term">
+        <div><span class="who">session 1 ·</span> Edit api.ts <span class="ok">✓</span></div>
+        <div><span class="who">session 2 ·</span> Edit api.ts</div>
+        <div class="warn">⚠ Another Claude session (9d5f2846 on branch fix-login) edited api.ts 2 min ago.</div>
+        <div class="warn">&nbsp;&nbsp;Read the file again first, or work on a different file.</div>
+        <div><span class="who">session 2 ·</span> Read api.ts, then Edit api.ts <span class="ok">✓ nothing lost</span></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>How it works</h2>
+      <p class="sub">One small hook. A warning, not a lock.</p>
+      <div class="steps">
+        <div class="card"><div class="n">01</div><h3>Every edit is noted</h3><p>Before Claude edits a file, the hook writes down which session touched it.</p></div>
+        <div class="card"><div class="n">02</div><h3>Overlaps get a warning</h3><p>If another session edited that file in the last 10 minutes, the edit stops once, with a note.</p></div>
+        <div class="card"><div class="n">03</div><h3>The agent carries on</h3><p>It re-reads the file and edits again. A second try always goes through.</p></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>What it doesn't do yet</h2>
+      <ul class="limits">
+        <li>It only sees sessions on this computer.</li>
+        <li>It doesn't see edits made through shell commands like <code>sed</code>.</li>
+        <li>It matches whole files, not lines.</li>
+      </ul>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap">MIT licensed. Made by <a href="https://flisk.sh">Flisk</a>. <a href="https://github.com/flisk-sh/run-my-agents">Source on GitHub</a>.</div>
+  </footer>
+
+  <script>
+    var root = document.documentElement, btn = document.getElementById("theme");
+    function label() { btn.textContent = root.getAttribute("data-theme") === "light" ? "Dark" : "Light"; }
+    label();
+    btn.addEventListener("click", function () {
+      var next = root.getAttribute("data-theme") === "light" ? "dark" : "light";
+      root.setAttribute("data-theme", next);
+      try { localStorage.setItem("theme", next); } catch (e) {}
+      label();
+    });
+    document.getElementById("copy").addEventListener("click", function (e) {
+      var text = "/plugin marketplace add flisk-sh/run-my-agents\n/plugin install run-my-agents@run-my-agents";
+      navigator.clipboard.writeText(text).then(function () { e.target.textContent = "Copied"; });
+    });
+  </script>
+</body>
+</html>
