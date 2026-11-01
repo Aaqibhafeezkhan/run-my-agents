@@ -71,8 +71,9 @@ body{background:#06060a;color:var(--text);font:13px/1.5 var(--body);-webkit-font
 .sk b{font:600 12px var(--mono);color:var(--mint)}.sk p{margin:2px 0 0;color:var(--muted);font-size:11px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .compose{position:relative;margin:var(--p2);border-radius:var(--r-row);background:#0b0b10;box-shadow:inset 0 0 0 1px var(--line);overflow:hidden;transition:box-shadow .3s}
 .compose:focus-within{box-shadow:inset 0 0 0 1px rgba(110,231,183,.35),0 8px 24px -12px rgba(34,197,94,.5)}
-.compose .row{position:relative;display:flex;gap:8px;align-items:flex-end;padding:10px 10px 12px 14px}
-#msg{flex:1;resize:none;border:0;outline:0;background:transparent;color:var(--text);font:13px/1.5 var(--body);min-height:22px;max-height:160px;caret-color:var(--mint)}
+.compose .row{position:relative;display:flex;gap:8px;align-items:flex-end;padding:8px 10px 10px 12px}
+.compose .row>*{flex:none;height:28px;display:flex;align-items:center}
+#msg{flex:1 1 auto;min-width:0;resize:none;border:0;outline:0;margin:0;padding:4px 0;box-sizing:border-box;height:28px;display:block;background:transparent;color:var(--text);font:13px/20px var(--body);max-height:160px;caret-color:var(--mint);overflow-y:auto}
 #msg::placeholder{color:var(--muted)}
 .glow{position:absolute;top:-30px;left:0;width:90px;height:90px;border-radius:50%;background:radial-gradient(circle,rgba(167,139,250,.32),rgba(56,189,248,.12) 45%,transparent 70%);pointer-events:none;opacity:0;transition:left .15s ease-out,top .15s ease-out,opacity .3s}
 .compose:focus-within .glow{opacity:1}
@@ -82,8 +83,8 @@ body{background:#06060a;color:var(--text);font:13px/1.5 var(--body);-webkit-font
 .fill{position:absolute;left:0;bottom:0;height:3px;width:0;background:rgba(255,255,255,.55);mix-blend-mode:overlay;transition:width .15s ease-out;pointer-events:none}
 .sh{position:absolute;inset:0;background:linear-gradient(100deg,transparent 30%,rgba(255,255,255,.07) 50%,transparent 70%);background-size:250% 100%;animation:shim2 2.6s linear infinite;pointer-events:none}
 @keyframes shim2{from{background-position:150% 0}to{background-position:-100% 0}}
-.ch{font:11px var(--mono);color:var(--muted);align-self:center;min-width:22px;text-align:right}
-.eq{display:flex;gap:3px;align-items:flex-end;height:20px;align-self:center}.eq i{width:3px;height:4px;border-radius:2px;background:var(--mint);transition:height .2s}
+.ch{font:11px var(--mono);color:var(--muted);min-width:26px;justify-content:flex-end}
+.eq{gap:3px;align-items:flex-end;padding-bottom:5px}.eq i{width:3px;height:4px;border-radius:2px;background:var(--mint);transition:height .2s}
 .compose.typing .eq i{animation:eq .45s ease-in-out infinite alternate}.compose.typing .eq i:nth-child(2){animation-delay:.1s}.compose.typing .eq i:nth-child(3){animation-delay:.2s}.compose.typing .eq i:nth-child(4){animation-delay:.3s}
 @keyframes eq{from{height:4px}to{height:18px}}
 .fairy{position:absolute;top:3px;left:0;width:30px;height:24px;pointer-events:none;z-index:2;animation:fx 9s ease-in-out infinite alternate,fy 1.8s ease-in-out infinite alternate}
@@ -95,11 +96,11 @@ body{background:#06060a;color:var(--text);font:13px/1.5 var(--body);-webkit-font
 .fairy i{position:absolute;top:0;width:13px;height:17px;border-radius:60% 60% 50% 50%;background:linear-gradient(160deg,rgba(255,255,255,.55),rgba(186,230,253,.15));border:1px solid rgba(255,255,255,.4);transform-origin:bottom center;animation:flap .16s ease-in-out infinite alternate}
 .fairy i.wl{left:3px;rotate:-28deg}.fairy i.wr{left:14px;rotate:28deg;animation-delay:.08s}
 @keyframes flap{from{scale:1 1}to{scale:.35 1}}
-.watch{flex:none;width:28px;height:28px;transition:transform .3s}.watch .ava{animation:none;filter:none}
+.watch{width:28px;transition:transform .3s}.watch .ava{animation:none;filter:none}
 .watch .pup{animation:none;transition:transform .15s ease-out}
 .compose:focus-within .watch{transform:translateY(-2px) rotate(-4deg)}
 .send{border:0;border-radius:var(--r-chip);padding:7px 14px;font:600 12px var(--body);color:#04120a;background:var(--green);cursor:pointer;transition:transform .2s,background .2s}.send:hover{background:var(--mint);transform:translateY(-1px)}.send:disabled{opacity:.5;cursor:wait}
-.rs{font:11px var(--mono);color:var(--muted);cursor:pointer;padding:6px 4px}.rs:hover{color:var(--text)}
+.rs{font:13px var(--mono);color:var(--muted);cursor:pointer;padding:0 4px}.rs:hover{color:var(--text)}
 .sent{position:absolute;left:14px;top:10px;right:120px;font:13px/1.5 var(--body);color:var(--mint);white-space:nowrap;overflow:hidden;pointer-events:none;animation:up .6s ease-in forwards}@keyframes up{to{transform:translateY(-20px);opacity:0}}
 .empty{color:var(--muted);text-align:center;margin:auto;padding:40px}
 @media (max-width:720px){.app{grid-template-columns:1fr}.side{max-height:40vh}}
@@ -181,8 +182,8 @@ document.addEventListener("click",e=>{
 
 });
 function fx(cls,x,y,txt,vars){const c=$("box");if(!c)return;const el=document.createElement("span");el.className=cls;el.style.left=x+"px";el.style.top=y+"px";if(txt)el.textContent=txt;for(const k in vars||{})el.style.setProperty(k,vars[k]);c.appendChild(el);el.addEventListener("animationend",()=>el.remove())}
-function caretXY(){const t=$("msg"),r=t.getBoundingClientRect(),c=$("box").getBoundingClientRect();const lines=t.value.slice(0,t.selectionStart).split("\\n");const w=Math.max(1,r.width);const col=lines.at(-1).length*7.1;return{x:r.left-c.left+(col%w),y:r.top-c.top+Math.min(r.height,(lines.length-1+Math.floor(col/w))*19.5)+10}}
-document.addEventListener("input",e=>{if(e.target.id!=="msg")return;const t=e.target;t.style.height="auto";t.style.height=Math.min(160,t.scrollHeight)+"px";follow();const c=$("box");c.classList.add("typing");clearTimeout(c._t);c._t=setTimeout(()=>c.classList.remove("typing"),700)});
+function caretXY(){const t=$("msg"),r=t.getBoundingClientRect(),c=$("box").getBoundingClientRect();const lines=t.value.slice(0,t.selectionStart).split("\\n");const w=Math.max(1,r.width);const col=lines.at(-1).length*7.1;return{x:r.left-c.left+(col%w),y:r.top-c.top+Math.min(r.height,(lines.length-1+Math.floor(col/w))*20)+14}}
+document.addEventListener("input",e=>{if(e.target.id!=="msg")return;const t=e.target;t.style.height="28px";t.style.height=Math.min(160,Math.max(28,t.scrollHeight))+"px";follow();const c=$("box");c.classList.add("typing");clearTimeout(c._t);c._t=setTimeout(()=>c.classList.remove("typing"),700)});
 document.addEventListener("selectionchange",()=>{if(document.activeElement?.id==="msg")follow()});
 function follow(){const t=$("msg"),p=caretXY(),w=t.getBoundingClientRect().width;const g=document.querySelector(".compose .glow");if(g){g.style.left=(p.x-45)+"px";g.style.top=(p.y-45)+"px"}
  const l=document.querySelector(".compose .fill");if(l)l.style.width=Math.min(w+40,t.value.length*7.1)+"px";const ch=$("ch");if(ch)ch.textContent=t.value.length;
@@ -191,6 +192,6 @@ document.addEventListener("keydown",e=>{if(e.target.id==="msg"&&e.key==="Enter"&
 async function sendMsg(){const t=$("msg"),s=S.find(x=>x.id===sel);if(!t||!s)return;const text=t.value.trim();if(!text){toast("Type a message first");t.focus();return}
  const r=await post("api/send",{id:s.id,text}).catch(()=>({error:"The board is not answering."}));if(r.error){toast(r.error);return}
  fx("sent",0,0,text.replace(/\\s+/g," "));
- t.value="";t.style.height="auto";follow();s.sending=true;const sb=document.querySelector(".send");if(sb){sb.disabled=true;sb.textContent="Answering…"}toast("Sent to "+s.role);last=""}
+ t.value="";t.style.height="28px";follow();s.sending=true;const sb=document.querySelector(".send");if(sb){sb.disabled=true;sb.textContent="Answering…"}toast("Sent to "+s.role);last=""}
 load();setInterval(load,3000);
 </script></body></html>`;
