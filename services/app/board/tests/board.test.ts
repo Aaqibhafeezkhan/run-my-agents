@@ -166,3 +166,14 @@ describe("page", () => {
 		expect(() => new Function(js)).not.toThrow();
 	});
 });
+
+describe("faces", () => {
+	it("gives every session of a role the same face and color, Code blue and Design purple", async () => {
+		const { faceOf } = await import("../src/index");
+		const code = [parseSession("a", [ask("fix the bug")], now), parseSession("b", [ask("add a test")], now)].filter((s) => s !== undefined);
+		expect(faceOf(code[0])).toEqual(faceOf(code[1]));
+		expect(faceOf(code[0]).color).toBe("#38bdf8");
+		const design = parseSession("c", [ask("redesign the pricing page")], now);
+		expect(design && faceOf(design).color).toBe("#a78bfa");
+	});
+});

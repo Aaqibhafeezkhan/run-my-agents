@@ -49,7 +49,7 @@ export const AGENTS: Agent[] = [
 	},
 	{
 		role: "Design",
-		color: "#f472b6",
+		color: "#a78bfa",
 		shape: "blob",
 		eyes: "ovals",
 		look: "up",
@@ -89,7 +89,7 @@ export const AGENTS: Agent[] = [
 	},
 	{
 		role: "Social",
-		color: "#a78bfa",
+		color: "#f472b6",
 		shape: "circle",
 		eyes: "happy",
 		look: "center",

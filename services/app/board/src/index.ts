@@ -8,10 +8,9 @@ import { PAGE } from "./page";
 import { findClashes, readAllSessions, type Session } from "./sessions";
 import SKILLS from "./skills.json";
 
-/** The avatar for a session: its role's face, or for plain Code sessions one picked from the id. */
+/** The avatar for a session: always its role's own face and color (Code is blue, Design purple, ...). */
 export function faceOf(s: Session) {
-	const hash = [...s.id].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 7);
-	const a = (s.role !== "Code" && AGENTS.find((x) => x.role === s.role)) || AGENTS[hash % AGENTS.length];
+	const a = AGENTS.find((x) => x.role === s.role) ?? (AGENTS.find((x) => x.role === "Code") as (typeof AGENTS)[number]);
 	return { shape: a.shape, eyes: a.eyes, color: a.color };
 }
 
