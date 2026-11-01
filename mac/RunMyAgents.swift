@@ -35,7 +35,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     let home = NSHomeDirectory()
     var env = ProcessInfo.processInfo.environment
     env["PORT"] = "\(port)"
-    env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:\(home)/.bun/bin:/usr/bin:/bin:" + (env["PATH"] ?? "")
+    // Apps start with a bare PATH; add where claude, codex and bun usually live so the board can send messages.
+    env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:\(home)/.local/bin:\(home)/.claude/local:\(home)/.bun/bin:\(home)/.npm-global/bin:/usr/bin:/bin:" + (env["PATH"] ?? "")
     let p = Process()
     // A release app carries the board compiled into one binary (no Bun needed); a dev build runs the source.
     let bundled = Bundle.main.url(forResource: "board", withExtension: nil)

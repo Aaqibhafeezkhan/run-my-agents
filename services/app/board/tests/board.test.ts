@@ -116,3 +116,53 @@ describe("codex, limits and skills", () => {
 		expect(skillsFor("Code").length).toBe(8);
 	});
 });
+
+describe("send", () => {
+	it("sends a message to the session and refuses empty text or a second send while one is on its way", async () => {
+		const s = parseSession("a", [ask("hi"), edit("/repo/x.ts")], now);
+		const sent: string[] = [];
+		let finish = () => {};
+		const app = createApp(
+			() => (s ? [s] : []),
+			async (_, text) => {
+				sent.push(text);
+				await new Promise<void>((r) => {
+					finish = r;
+				});
+			},
+		);
+		const post = (body: object) =>
+			app.request("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+		expect((await post({ id: "a", text: "  " })).status).toBe(400);
+		expect((await post({ id: "a", text: "add tests" })).status).toBe(202);
+		expect((await post({ id: "a", text: "again" })).status).toBe(409);
+		finish();
+		await Bun.sleep(1);
+		expect((await post({ id: "a", text: "again" })).status).toBe(202);
+		expect(sent).toEqual(["add tests", "again"]);
+		expect((await post({ id: "nope", text: "x" })).status).toBe(404);
+	});
+
+	it("puts the prompt on stdin, not in the command line", async () => {
+		const { sendToSession } = await import("../src/index");
+		const s = parseSession("a", [ask("hi"), edit("/repo/x.ts")], now);
+		let seen: { cmd: string; args: string[]; stdin: string } | undefined;
+		const fake = ((cmd: string, args: string[]) => {
+			const child = new (require("node:events").EventEmitter)();
+			child.stdin = { end: (t: string) => { seen = { cmd, args, stdin: t }; setTimeout(() => child.emit("close"), 0); } };
+			return child;
+		}) as never;
+		if (s) await sendToSession(s, "-rf everything", fake);
+		expect(seen?.cmd).toBe("claude");
+		expect(seen?.args).toEqual(["-p", "--resume", "a", "--permission-mode", "acceptEdits"]);
+		expect(seen?.stdin).toBe("-rf everything");
+	});
+});
+
+describe("page", () => {
+	it("ships a script that parses", async () => {
+		const { PAGE } = await import("../src/page");
+		const js = PAGE.split("<script>")[1].split("</script>")[0];
+		expect(() => new Function(js)).not.toThrow();
+	});
+});
