@@ -7,6 +7,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
+import { readDesktopMeta } from "./desktop";
 
 export interface Tokens {
 	/** New input, cache writes and output: what counts toward a limit. */
@@ -33,6 +34,8 @@ export interface Session {
 	edits: { file: string; at: number }[];
 	updatedAt: number;
 	role: string;
+	/** Pinned in the Claude desktop app. */
+	pinned: boolean;
 	/** The last few turns, oldest first, for the agent's channel. */
 	feed: FeedItem[];
 }
@@ -57,7 +60,7 @@ const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 export function guessRole(title: string, files: string[]): string {
 	const text = `${title} ${files.join(" ")}`.toLowerCase();
 	const rules: [string, RegExp][] = [
-		["Video", /video|film|ffmpeg|\.mp4|gif|record/],
+		["Video", /video|film|ffmpeg|\.mp4|gif|record|youtube|\bshorts?\b|\breels?\b|tiktok/],
 		["SEO", /\bseo\b|sitemap|robots\.txt|meta tag|canonical|search console/],
 		["Social", /tweet|post on|linkedin|reddit|product ?hunt|launch post|\bhn\b|social/],
 		["Design", /design|\.css|style|layout|ui\b|avatar|figma|logo|icon/],
@@ -81,7 +84,7 @@ function textOf(content: unknown): string {
 
 /** One transcript to a Session, or undefined when it has no conversation in it. */
 export function parseSession(id: string, lines: string[], updatedAt: number): Session | undefined {
-	const s: Session = { id, agent: "claude", model: "", tokens: { used: 0, cached: 0 }, cwd: "", branch: "", title: "", said: "", doing: "", edits: [], updatedAt, role: "Code", feed: [] };
+	const s: Session = { id, agent: "claude", model: "", tokens: { used: 0, cached: 0 }, cwd: "", branch: "", title: "", said: "", doing: "", edits: [], updatedAt, role: "Code", pinned: false, feed: [] };
 	for (const line of lines) {
 		let e: {
 			type?: string;
@@ -139,7 +142,7 @@ export function parseSession(id: string, lines: string[], updatedAt: number): Se
 
 /** One Codex rollout (~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl) to a Session. */
 export function parseCodexSession(lines: string[], updatedAt: number): Session | undefined {
-	const s: Session = { id: "", agent: "codex", model: "", tokens: { used: 0, cached: 0 }, cwd: "", branch: "", title: "", said: "", doing: "", edits: [], updatedAt, role: "Code", feed: [] };
+	const s: Session = { id: "", agent: "codex", model: "", tokens: { used: 0, cached: 0 }, cwd: "", branch: "", title: "", said: "", doing: "", edits: [], updatedAt, role: "Code", pinned: false, feed: [] };
 	for (const line of lines) {
 		let e: { timestamp?: string; type?: string; payload?: Record<string, unknown> };
 		try {
@@ -226,6 +229,8 @@ export function readSessions(
 	root = process.env.CLAUDE_PROJECTS_DIR || join(homedir(), ".claude", "projects"),
 	maxAgeMs = 60 * 60_000,
 	now = Date.now(),
+	/** Session ids to include however old, like pinned ones. */
+	keep: ReadonlySet<string> = new Set(),
 ): Session[] {
 	const out: Session[] = [];
 	let folders: string[] = [];
@@ -244,7 +249,7 @@ export function readSessions(
 		for (const f of files) {
 			const path = join(root, folder, f);
 			const mtime = statSync(path).mtimeMs;
-			if (now - mtime > maxAgeMs) continue;
+			if (now - mtime > maxAgeMs && !keep.has(f.replace(/\.jsonl$/, ""))) continue;
 			const s = parseSession(f.replace(/\.jsonl$/, ""), readFileSync(path, "utf8").split("\n"), mtime);
 			if (s) out.push(s);
 		}
@@ -252,9 +257,23 @@ export function readSessions(
 	return out.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
-/** Every agent's sessions on this computer, newest first. */
+/**
+ * Every agent's sessions on this computer, newest first: Claude Code sessions with the names, pins and archive
+ * state from the Claude desktop app (pinned ones show whatever their age), plus Codex sessions.
+ */
 export function readAllSessions(now = Date.now()): Session[] {
-	return [...readSessions(undefined, undefined, now), ...readCodexSessions(undefined, undefined, now)].sort(
-		(a, b) => b.updatedAt - a.updatedAt,
-	);
+	const meta = readDesktopMeta();
+	const keep = new Set([...meta].filter(([, m]) => m.pinned).map(([id]) => id));
+	const claude = readSessions(undefined, undefined, now, keep).filter((s) => {
+		const m = meta.get(s.id);
+		return !m?.archived || m.pinned;
+	});
+	for (const s of claude) {
+		const m = meta.get(s.id);
+		if (!m) continue;
+		if (m.title) s.title = m.title;
+		s.pinned = m.pinned;
+		s.role = guessRole(s.title, s.edits.map((e) => e.file));
+	}
+	return [...claude, ...readCodexSessions(undefined, undefined, now)].sort((a, b) => b.updatedAt - a.updatedAt);
 }

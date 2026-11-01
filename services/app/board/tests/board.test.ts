@@ -177,3 +177,50 @@ describe("faces", () => {
 		expect(design && faceOf(design).color).toBe("#a78bfa");
 	});
 });
+
+describe("typing box", () => {
+	it("never shares a class name with the feed's typing dots, which would restyle the whole box", async () => {
+		const { PAGE } = await import("../src/page");
+		expect(PAGE).not.toMatch(/\.compose\.typing/);
+		expect(PAGE).not.toContain('classList.add("typing")');
+		// the dots keep their own .typing rule
+		expect(PAGE).toContain(".typing{display:flex");
+	});
+});
+
+describe("motion and model tags", () => {
+	it("ships a script that still parses, with a mini model tag and a shake that speeds up under token pressure", async () => {
+		const { PAGE } = await import("../src/page");
+		const js = PAGE.split("<script>")[1].split("</script>")[0];
+		expect(() => new Function(js)).not.toThrow();
+		expect(PAGE).toContain("@keyframes shake");
+		expect(PAGE).toContain("function mtag(");
+		expect(PAGE).toContain("function motion(");
+	});
+});
+
+describe("claude desktop pins and names", () => {
+	it("reads the app's names and pins, keyed by the CLI session id", async () => {
+		const { mkdtempSync, mkdirSync, writeFileSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		const { readDesktopMeta } = await import("../src/desktop");
+		const root = mkdtempSync(join(tmpdir(), "rma-desk-"));
+		const dir = join(root, "claude-code-sessions", "acct", "org");
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(join(root, "claude_desktop_config.json"), JSON.stringify({ preferences: { epitaxyPrefs: { "starred-local-code-sessions": ["local_a"] } } }));
+		writeFileSync(join(dir, "local_a.json"), JSON.stringify({ sessionId: "local_a", cliSessionId: "cli-a", title: "Flisk 5-second YouTube Short" }));
+		writeFileSync(join(dir, "local_b.json"), JSON.stringify({ sessionId: "local_b", cliSessionId: "cli-b", title: "Ghostfolio", isArchived: true }));
+		writeFileSync(join(dir, "local_c.json"), "not json");
+		const meta = readDesktopMeta(root);
+		expect(meta.get("cli-a")).toEqual({ title: "Flisk 5-second YouTube Short", pinned: true, archived: false });
+		expect(meta.get("cli-b")).toEqual({ title: "Ghostfolio", pinned: false, archived: true });
+		expect(meta.size).toBe(2);
+	});
+
+	it("reads a missing app folder as no pins, and guesses Video for a YouTube Short", async () => {
+		const { readDesktopMeta } = await import("../src/desktop");
+		expect(readDesktopMeta("/nonexistent/claude").size).toBe(0);
+		expect(guessRole("Flisk 5-second YouTube Short", [])).toBe("Video");
+	});
+});
