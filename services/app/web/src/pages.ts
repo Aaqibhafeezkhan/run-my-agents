@@ -1,6 +1,7 @@
 // The pages, rendered on the server with no JavaScript (the Content-Security-Policy allows none): home, about with
 // the FAQ, and not found. Each one passes its own PageMeta to head(), which writes every SEO tag. The look is the
 // roadmap.flisk.si one: dark first, Satoshi and JetBrains Mono when installed, one green accent.
+import { AGENTS, avatar } from "./avatars";
 import { installSteps } from "./install";
 import { esc, faqJsonLd, head, type PageMeta } from "./seo";
 import { SITE } from "./site";
@@ -30,6 +31,13 @@ section{padding:40px 0}h2{font-size:1.6rem;letter-spacing:-.02em;margin:0 0 8px}
 ul.limits{margin:0;padding-left:20px;color:var(--muted)}
 dt{font-weight:700;margin-top:20px;font-size:1.05rem}dd{margin:6px 0 0;color:var(--muted)}
 .prose{padding:56px 0 0}
+.board{background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);overflow:hidden}
+.board .bar{display:flex;justify-content:space-between;padding:10px 16px;border-bottom:1px solid var(--line);font-size:.8rem;color:var(--faint)}
+.row{display:grid;grid-template-columns:48px minmax(0,1fr) auto;gap:14px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line)}.row:last-child{border-bottom:0}
+.row b{display:block;font-size:.95rem}.row span{color:var(--muted);font-size:.85rem}.row code{font:.78rem var(--mono);color:var(--faint)}
+.st{font:600 .72rem var(--mono);border-radius:999px;padding:3px 10px;white-space:nowrap}.st.editing{color:var(--accent-text);background:var(--accent-tint)}.st.waiting{color:var(--warn);background:rgba(245,158,11,.12)}.st.done{color:var(--faint);background:var(--line)}
+.ava{display:block;flex:none}.clash{background:rgba(245,158,11,.06)}
+.faces{display:flex;gap:6px;margin:0 0 22px;flex-wrap:wrap}
 footer{margin-top:48px;border-top:1px solid var(--line);padding:24px 0 40px;color:var(--faint);font-size:.85rem}
 `;
 
@@ -52,6 +60,20 @@ function installBox(): string {
 		.join("\n")}</pre></div>`;
 }
 
+function board(): string {
+	const clash = AGENTS.find((a) => a.role === "Design");
+	const rows = AGENTS.map((a) => {
+		const warn = a === clash ? " clash" : "";
+		const note =
+			a === clash
+				? `<span class="warn">⚠ Code agent edited src/pages.ts 2 min ago, re-reading first</span>`
+				: `<span>${esc(a.task)} · <code>${esc(a.file)}</code></span>`;
+		const state = a === clash ? "waiting" : a.state;
+		return `<div class="row${warn}">${avatar(a)}<div><b>${esc(a.role)}</b>${note}</div><em class="st ${state}">${state}</em></div>`;
+	}).join("");
+	return `<div class="board"><div class="bar"><span>One repo · ${AGENTS.length} agents</span><span>~/code/app</span></div>${rows}</div>`;
+}
+
 export function homePage(base: string): string {
 	return layout(
 		base,
@@ -60,11 +82,12 @@ export function homePage(base: string): string {
 			title: `${SITE.name}: ${SITE.tagline}`,
 			description: SITE.description,
 		},
-		`<div class="wrap"><div class="hero"><span class="pill">Free Claude Code plugin</span>
+		`<div class="wrap"><div class="hero"><div class="faces">${AGENTS.map((a) => avatar(a, 40)).join("")}</div><span class="pill">Free Claude Code plugin</span>
 <h1>Run My <span>Agents</span></h1>
 <p class="lede">Run many Claude Code sessions on one repo, and stop them overwriting each other's work.</p>
 ${installBox()}
 <p class="meta">No server. No account. No keys. Everything stays on your computer.</p></div>
+<section><h2>Your agent team, on one repo</h2><p class="sub">Every agent has its own job. When two reach for the same file, the second one waits and re-reads.</p>${board()}</section>
 <section><h2>What your agent sees</h2><p class="sub">Session 2 tries to edit a file session 1 changed two minutes ago.</p>
 <div class="term"><div><span class="who">session 1 ·</span> Edit api.ts <span class="ok">✓</span></div>
 <div><span class="who">session 2 ·</span> Edit api.ts</div>
