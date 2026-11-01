@@ -224,3 +224,116 @@ describe("claude desktop pins and names", () => {
 		expect(guessRole("Flisk 5-second YouTube Short", [])).toBe("Video");
 	});
 });
+
+describe("new sessions and agent types", () => {
+	const J = { "content-type": "application/json" };
+	const post = (app: ReturnType<typeof createApp>, path: string, body: object) =>
+		app.request(path, { method: "POST", headers: J, body: JSON.stringify(body) });
+
+	it("detects the agent type from the text, and the AI when it is named", async () => {
+		const app = createApp(() => [], undefined, { which: () => ({ claude: true, codex: true }) });
+		expect(await (await app.request("/api/detect?text=" + encodeURIComponent("cut the demo video"))).json()).toEqual({ role: "Video", agent: null });
+		expect((await (await app.request("/api/detect?text=" + encodeURIComponent("ask codex to fix sitemap"))).json()).agent).toBe("codex");
+		const noCodex = createApp(() => [], undefined, { which: () => ({ claude: true, codex: false }) });
+		expect((await (await noCodex.request("/api/detect?text=use+codex")).json()).agent).toBeNull();
+	});
+
+	it("offers installed agents, recent folders and every type with its face", async () => {
+		const s = parseSession("a", [ask("hi"), edit("/repo/x.ts")], now);
+		const app = createApp(() => (s ? [s] : []), undefined, { which: () => ({ claude: true, codex: false }) });
+		const o = await (await app.request("/api/options")).json();
+		expect(o.defaultAgent).toBe("claude");
+		expect(o.agents).toEqual({ claude: true, codex: false });
+		expect(o.folders).toEqual(["/repo"]);
+		expect(o.roles.map((r: { role: string }) => r.role)).toContain("Video");
+	});
+
+	it("starts a Claude session in an existing folder with a chosen id, model and type", async () => {
+		const { mkdtempSync, readFileSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		const dir = mkdtempSync(join(tmpdir(), "rma-new-"));
+		process.env.RUN_MY_AGENTS_DIR = mkdtempSync(join(tmpdir(), "rma-prefs-"));
+		let seen: { agent: string; cwd: string; text: string; model?: string; id?: string } | undefined;
+		const app = createApp(() => [], undefined, { which: () => ({ claude: true, codex: true }), start: async (n) => { seen = n; } });
+		const res = await post(app, "/api/new", { agent: "claude", cwd: dir, text: "cut the demo", role: "Video", model: "haiku" });
+		expect(res.status).toBe(202);
+		const { id } = await res.json();
+		expect(seen).toMatchObject({ agent: "claude", cwd: dir, text: "cut the demo", model: "haiku", id });
+		expect(JSON.parse(readFileSync(join(process.env.RUN_MY_AGENTS_DIR, "roles.json"), "utf8"))[id]).toBe("Video");
+		for (const bad of [
+			{ agent: "claude", cwd: dir, text: " " },
+			{ agent: "vim", cwd: dir, text: "x" },
+			{ agent: "claude", cwd: "/nonexistent/folder", text: "x" },
+			{ agent: "claude", cwd: dir, text: "x", role: "Wizard" },
+		])
+			expect((await post(app, "/api/new", bad)).status).toBe(400);
+		const none = createApp(() => [], undefined, { which: () => ({ claude: false, codex: false }) });
+		expect((await post(none, "/api/new", { agent: "claude", cwd: dir, text: "x" })).status).toBe(400);
+		expect((await app.request("/api/new", { method: "POST", body: "text=x" })).status).toBe(403);
+	});
+
+	it("puts the prompt on stdin and never in the command line, for both AIs", async () => {
+		const { startNewSession } = await import("../src/index");
+		const run = (out: { cmd?: string; args?: string[]; stdin?: string }) =>
+			((cmd: string, args: string[]) => {
+				const child = new (require("node:events").EventEmitter)();
+				child.stdin = { end: (t: string) => { Object.assign(out, { cmd, args, stdin: t }); setTimeout(() => child.emit("close"), 0); } };
+				return child;
+			}) as never;
+		const c: { cmd?: string; args?: string[]; stdin?: string } = {};
+		await startNewSession({ agent: "claude", cwd: "/tmp", text: "-rf x", id: "i1", model: "opus" }, run(c));
+		expect(c.args).toEqual(["-p", "--session-id", "i1", "--permission-mode", "acceptEdits", "--model", "opus"]);
+		expect(c.stdin).toBe("-rf x");
+		const x: { cmd?: string; args?: string[]; stdin?: string } = {};
+		await startNewSession({ agent: "codex", cwd: "/tmp", text: "do it" }, run(x));
+		expect(x.cmd).toBe("codex");
+		expect(x.args).toEqual(["exec", "--skip-git-repo-check", "--sandbox", "workspace-write"]);
+		expect(x.stdin).toBe("do it");
+	});
+
+	it("lets you retype an existing session, and go back to the board's guess", async () => {
+		const { mkdtempSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		process.env.RUN_MY_AGENTS_DIR = mkdtempSync(join(tmpdir(), "rma-prefs-"));
+		const { applyRoles } = await import("../src/prefs");
+		const fresh = () => [parseSession("s1", [ask("fix the bug")], now)].filter((s) => s !== undefined);
+		const app = createApp(() => applyRoles(fresh()));
+		expect((await post(app, "/api/role", { id: "s1", role: "Design" })).status).toBe(200);
+		let s = (await (await app.request("/api/sessions")).json()).sessions[0];
+		expect([s.role, s.roleSet, s.face.color]).toEqual(["Design", true, "#a78bfa"]);
+		await post(app, "/api/role", { id: "s1", role: "" });
+		s = (await (await app.request("/api/sessions")).json()).sessions[0];
+		expect([s.role, s.roleSet]).toEqual(["Code", undefined]);
+		expect((await post(app, "/api/role", { id: "s1", role: "Wizard" })).status).toBe(400);
+	});
+
+	it("gives a just-started Codex session the type chosen for it once it appears", async () => {
+		const { mkdtempSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		process.env.RUN_MY_AGENTS_DIR = mkdtempSync(join(tmpdir(), "rma-prefs-"));
+		const { addPending, applyRoles } = await import("../src/prefs");
+		addPending({ agent: "codex", cwd: "/repo", prefix: "cut the demo", role: "Video" });
+		const cx = { id: "cx9", agent: "codex", title: "cut the demo reel", cwd: "/repo", updatedAt: Date.now(), role: "Code" } as never;
+		expect(applyRoles([cx])[0].role).toBe("Video");
+	});
+});
+
+describe("new session page", () => {
+	it("still parses, and has the button, the dialog and the type picker", async () => {
+		const { PAGE } = await import("../src/page");
+		const js = PAGE.split("<script>")[1].split("</script>")[0];
+		expect(() => new Function(js)).not.toThrow();
+		for (const part of ['data-act="newopen"', 'id="dlg"', 'data-act="roles"', "function startNew(", "function drawNew("]) expect(PAGE).toContain(part);
+	});
+});
+
+describe("sessions the Claude app does not list", () => {
+	it("goes in its own group, so the others match the app", async () => {
+		const { PAGE } = await import("../src/page");
+		expect(PAGE).toContain('["Not in the Claude app",s=>!s.pinned&&s.viaApp===false]');
+		expect(PAGE).toContain('["Working",s=>!s.pinned&&s.viaApp!==false');
+	});
+});

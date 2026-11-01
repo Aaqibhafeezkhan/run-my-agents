@@ -108,6 +108,21 @@ body{background:#06060a;color:var(--text);font:13px/1.5 var(--body);-webkit-font
 .send{border:0;border-radius:var(--r-chip);padding:7px 14px;font:600 12px var(--body);color:#04120a;background:var(--green);cursor:pointer;transition:transform .2s,background .2s}.send:hover{background:var(--mint);transform:translateY(-1px)}.send:disabled{opacity:.5;cursor:wait}
 .rs{font:13px var(--mono);color:var(--muted);cursor:pointer;padding:0 4px}.rs:hover{color:var(--text)}
 .sent{position:absolute;left:14px;top:10px;right:120px;font:13px/1.5 var(--body);color:var(--mint);white-space:nowrap;overflow:hidden;pointer-events:none;animation:up .6s ease-in forwards}@keyframes up{to{transform:translateY(-20px);opacity:0}}
+.btn.new{background:var(--green);color:#04120a}.btn.new:hover{background:var(--mint)}
+.side .btns{display:flex;gap:6px;flex-wrap:wrap;padding:0 6px}
+.dlg{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center}.dlg[hidden]{display:none}
+.dbg{position:absolute;inset:0;background:rgba(0,0,0,.55);backdrop-filter:blur(3px)}
+.dcard{position:relative;width:min(560px,92vw);max-height:92vh;overflow:auto;background:#14141c;border-radius:var(--r-app);padding:var(--p1);box-shadow:inset 0 0 0 1px var(--line),0 30px 80px rgba(0,0,0,.6);animation:in .25s ease both}
+.dcard .in{background:#1a1a22;border-radius:var(--r-panel);padding:14px;display:flex;flex-direction:column;gap:10px}
+.dcard h3{margin:0;font-size:15px}
+.lbl{font:11px var(--mono);color:var(--muted);display:flex;gap:8px;align-items:center}.lbl em{color:var(--mint);font-style:normal}
+#ntext{width:100%;resize:vertical;min-height:70px;max-height:200px;background:#0f0f15;border:1px solid var(--line);border-radius:var(--r-row);color:var(--text);padding:10px;font:13px/1.5 var(--body);outline:0}#ntext:focus{border-color:rgba(110,231,183,.45)}
+.seg{display:flex;gap:6px;flex-wrap:wrap}.sg{padding:6px 12px;border-radius:var(--r-chip);background:#0f0f15;cursor:pointer;transition:background .2s;font-size:12px;border:1px solid transparent}.sg:hover{background:#23232e}.sg.on{border-color:var(--green);background:rgba(34,197,94,.12)}.sg.off{opacity:.45}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.rc{display:inline-flex;align-items:center;gap:5px;padding:3px 9px 3px 4px;border-radius:999px;background:#0f0f15;cursor:pointer;font-size:12px;border:1px solid transparent;transition:background .2s,transform .2s}.rc:hover{background:#23232e;transform:translateY(-1px)}.rc.on{border-color:var(--c);background:color-mix(in srgb,var(--c) 16%,transparent)}.rc em{font:600 9px var(--mono);font-style:normal;color:var(--mint);margin-left:2px}
+.dcard select,.dcard input.f{background:#0f0f15;border:1px solid var(--line);border-radius:var(--r-row);color:var(--text);padding:7px 9px;font:12px var(--mono);outline:0;width:100%}
+.dact{display:flex;gap:8px;justify-content:flex-end}
+.roles{display:flex;flex-wrap:wrap;gap:6px;padding:var(--p2) 10px;border-bottom:1px solid var(--line);animation:in .3s ease both}
 .empty{color:var(--muted);text-align:center;margin:auto;padding:40px}
 @media (max-width:720px){.app{grid-template-columns:1fr}.side{max-height:40vh}}
 </style></head><body>
@@ -115,8 +130,9 @@ body{background:#06060a;color:var(--text);font:13px/1.5 var(--body);-webkit-font
 <radialGradient id="sh" cx="35%" cy="28%" r="75%"><stop offset="0" stop-color="#fff" stop-opacity=".55"/><stop offset=".45" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".45"/></radialGradient>
 <radialGradient id="eye" cx="40%" cy="35%" r="70%"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#cfd3e0"/></radialGradient>
 </defs></svg>
-<div class="app"><nav class="side" id="side"></nav><main class="main"><div class="hd" id="hd"></div><div id="meter"></div><div id="skills"></div><div id="warns"></div><div class="feed" id="feed"></div><div class="box" id="box"></div></main></div>
+<div class="app"><nav class="side" id="side"></nav><main class="main"><div class="hd" id="hd"></div><div id="meter"></div><div id="skills"></div><div id="roles"></div><div id="warns"></div><div class="feed" id="feed"></div><div class="box" id="box"></div></main></div>
 <div class="toast" id="toast"></div>
+<div class="dlg" id="dlg" hidden></div>
 <script>
 const SH={circle:c=>'<circle cx="32" cy="32" r="28" fill="'+c+'"/><circle cx="32" cy="32" r="28" fill="url(#sh)"/>',
 square:c=>'<rect x="5" y="5" width="54" height="54" rx="12" fill="'+c+'"/><rect x="5" y="5" width="54" height="54" rx="12" fill="url(#sh)"/>',
@@ -154,15 +170,16 @@ function toast(t){const el=$("toast");el.textContent=t;el.classList.add("on");cl
 const state=s=>C.some(c=>c.sessions.includes(s.id))?"y":Date.now()-s.updatedAt<120000?"g":"z";
 function face(s,n){const f=s.face,m=motion(s);return '<div class="av'+(m.low?" low":"")+'" data-face="'+s.id+'" style="width:'+n+'px;height:'+n+'px;'+m.style+'"><svg width="'+n+'" height="'+n+'" viewBox="0 0 64 64">'+SH[f.shape](f.color)+EY[f.eyes]+'</svg>'+(n>32?'<span class="dot '+state(s)+'"></span>':"")+"</div>"}
 function render(){
- if(!S.length){$("side").innerHTML='<div class="proj">Run My Agents</div>';$("hd").innerHTML="";$("warns").innerHTML="";$("feed").innerHTML='<p class="empty">No Claude Code sessions in the last hour. Start one and it shows up here.</p>';$("box").innerHTML="";return}
+ if(!S.length){$("side").innerHTML='<div class="proj">Run My Agents</div><div class="btns"><button class="btn new" data-act="newopen">+ New session</button></div>';$("hd").innerHTML="";$("warns").innerHTML="";$("feed").innerHTML='<p class="empty">No Claude Code sessions in the last hour. Start one and it shows up here.</p>';$("box").innerHTML="";return}
  if(!S.find(s=>s.id===sel))sel=S[0].id;
- const groups=[["Pinned",s=>s.pinned],["Working",s=>!s.pinned&&state(s)!=="z"],["Idle",s=>!s.pinned&&state(s)==="z"]];
- $("side").innerHTML='<div class="proj" data-act="proj"><span>Run My Agents</span><small>'+S.length+" agents</small></div>"+'<div style="padding:0 6px"><button class="btn" data-act="limits">'+(L.sessionTokens?"Limit "+kt(L.sessionTokens)+" per session":"Set token limit")+"</button></div>"+(showLimits?'<div class="panel"><div>Tokens per session (0 = no limit)</div><input type="number" id="lim" min="0" step="50000" value="'+L.sessionTokens+'"><label><input type="checkbox" id="auto" '+(L.autoDowngrade?"checked":"")+'> At the limit, move new sessions to a cheaper model</label><div style="color:var(--muted);font-size:11px">Models only move down: Opus, then Sonnet, then Haiku. Never up.</div><button class="btn go" data-act="save">Save</button></div>':"")+groups.map(([g,f])=>{const xs=S.filter(f);if(!xs.length)return"";return '<div class="grp" data-grp="'+g+'">'+(fold[g]?"▸":"▾")+" "+g+" · "+xs.length+"</div>"+(fold[g]?"":xs.map(s=>{const unread=(s.feed.length-(seen[s.id]??s.feed.length));return '<div class="it '+(s.id===sel?"sel ":"")+(state(s)==="z"?"idle":"")+'" data-sel="'+s.id+'">'+face(s,36)+'<div class="t"><b class="nm">'+esc(s.title||"Untitled session")+'</b><span class="meta"><span class="rl" style="color:'+s.face.color+';background:color-mix(in srgb,'+s.face.color+' 18%,transparent)">'+esc(s.role)+'</span><span class="ag '+s.agent+'">'+(s.agent==="codex"?"CODEX":"CLAUDE")+"</span>"+mtag(s)+ago(Date.now()-s.updatedAt)+"</span><small>"+[esc(s.doing||""),kt(s.tokens.used)+" tok"+(L.sessionTokens?" / "+kt(L.sessionTokens):"")].filter(Boolean).join(" · ")+"</small></div>"+(unread>0&&s.id!==sel?'<span class="badge">'+unread+"</span>":"")+"</div>"}).join(""))}).join("");
+ const groups=[["Pinned",s=>s.pinned],["Working",s=>!s.pinned&&s.viaApp!==false&&state(s)!=="z"],["Idle",s=>!s.pinned&&s.viaApp!==false&&state(s)==="z"],["Not in the Claude app",s=>!s.pinned&&s.viaApp===false]];
+ $("side").innerHTML='<div class="proj" data-act="proj"><span>Run My Agents</span><small>'+S.length+" agents</small></div>"+'<div class="btns"><button class="btn new" data-act="newopen">+ New session</button><button class="btn" data-act="limits">'+(L.sessionTokens?"Limit "+kt(L.sessionTokens)+" per session":"Set token limit")+"</button></div>"+(showLimits?'<div class="panel"><div>Tokens per session (0 = no limit)</div><input type="number" id="lim" min="0" step="50000" value="'+L.sessionTokens+'"><label><input type="checkbox" id="auto" '+(L.autoDowngrade?"checked":"")+'> At the limit, move new sessions to a cheaper model</label><div style="color:var(--muted);font-size:11px">Models only move down: Opus, then Sonnet, then Haiku. Never up.</div><button class="btn go" data-act="save">Save</button></div>':"")+groups.map(([g,f])=>{const xs=S.filter(f);if(!xs.length)return"";return '<div class="grp" data-grp="'+g+'">'+(fold[g]?"▸":"▾")+" "+g+" · "+xs.length+"</div>"+(fold[g]?"":xs.map(s=>{const unread=(s.feed.length-(seen[s.id]??s.feed.length));return '<div class="it '+(s.id===sel?"sel ":"")+(state(s)==="z"?"idle":"")+'" data-sel="'+s.id+'">'+face(s,36)+'<div class="t"><b class="nm">'+esc(s.title||"Untitled session")+'</b><span class="meta"><span class="rl" style="color:'+s.face.color+';background:color-mix(in srgb,'+s.face.color+' 18%,transparent)">'+esc(s.role)+'</span><span class="ag '+s.agent+'">'+(s.agent==="codex"?"CODEX":"CLAUDE")+"</span>"+mtag(s)+ago(Date.now()-s.updatedAt)+"</span><small>"+[esc(s.doing||""),kt(s.tokens.used)+" tok"+(L.sessionTokens?" / "+kt(L.sessionTokens):"")].filter(Boolean).join(" · ")+"</small></div>"+(unread>0&&s.id!==sel?'<span class="badge">'+unread+"</span>":"")+"</div>"}).join(""))}).join("");
  const s=S.find(x=>x.id===sel);seen[s.id]=s.feed.length;
- $("hd").innerHTML=face(s,30)+"<div>"+esc(s.role)+" · "+esc(s.title||"Untitled")+"<br><small>"+esc(s.branch||"")+" · "+esc(s.cwd.split("/").pop()||"")+" · session "+s.id.slice(0,8)+'</small></div><div class="hb"><span data-act="skills">Skills</span><span data-act="files">Files</span><span data-act="mute">'+(muted[s.id]?"Unmute":"Mute")+"</span></div>";
+ $("hd").innerHTML=face(s,30)+"<div>"+esc(s.role)+" · "+esc(s.title||"Untitled")+"<br><small>"+esc(s.branch||"")+" · "+esc(s.cwd.split("/").pop()||"")+" · session "+s.id.slice(0,8)+'</small></div><div class="hb"><span data-act="roles">Type: '+esc(s.role)+'</span><span data-act="skills">Skills</span><span data-act="files">Files</span><span data-act="mute">'+(muted[s.id]?"Unmute":"Mute")+"</span></div>";
  const over=L.sessionTokens&&s.tokens.used>=L.sessionTokens,pct=L.sessionTokens?Math.min(100,s.tokens.used/L.sessionTokens*100):0;
  $("meter").innerHTML='<div class="meter"><span>'+(mtag(s)||esc(s.agent))+"</span>"+(L.sessionTokens?'<div class="bar'+(over?" hot":"")+'"><i style="width:'+pct+'%"></i></div><span>'+kt(s.tokens.used)+" / "+kt(L.sessionTokens)+"</span>":'<span style="flex:1">'+kt(s.tokens.used)+" tokens · "+kt(s.tokens.cached)+" cached</span>")+(s.lower?'<button class="btn'+(over?" go":"")+'" data-act="down">Move to '+s.lower+"</button>":"")+"</div>";
  $("skills").innerHTML=showSkills?'<div class="skills">'+s.skills.map(k=>'<div class="sk" data-skill="'+esc(k.name)+'" title="'+esc(k.source+"/"+k.path)+'"><b>/'+esc(k.name)+"</b><p>"+esc(k.what)+"</p></div>").join("")+"</div>":"";
+ $("roles").innerHTML=showRoles&&OPT?'<div class="roles"><span class="rc'+(s.roleSet?"":" on")+'" data-act="setrole" data-role="" style="--c:#8a8a99">Auto</span>'+chips(s.roleSet?s.role:"","","setrole")+"</div>":"";
  const mine=C.filter(c=>c.sessions.includes(s.id));
  $("warns").innerHTML=mine.filter(c=>!muted[s.id]).map(c=>{const other=c.sessions.filter(x=>x!==s.id).map(x=>(S.find(y=>y.id===x)||{role:"another session"}).role).join(", ");return '<div class="warn" data-act="go" data-file="'+esc(c.file)+'" data-other="'+c.sessions.find(x=>x!==s.id)+'"><span>⚠ '+esc(other)+" also edited "+esc(c.file.split("/").pop())+" in the last 10 min</span><span>Open "+esc(other)+"</span></div>"}).join("");
  const feed=$("feed"),stick=feed.scrollTop+feed.clientHeight>=feed.scrollHeight-40;
@@ -174,7 +191,7 @@ function render(){
  const sb=document.querySelector(".send");if(sb){sb.disabled=!!s.sending;sb.textContent=s.sending?"Answering…":"Send"}
  first=false;
 }
-async function load(){if(showLimits&&document.activeElement?.id==="lim")return;try{const r=await fetch("api/sessions");const t=await r.text();if(t===last)return;last=t;const j=JSON.parse(t);S=j.sessions;C=j.clashes;L=j.limits;render()}catch{}}
+async function load(){if(showLimits&&document.activeElement?.id==="lim")return;try{const r=await fetch("api/sessions");const t=await r.text();if(t===last)return;last=t;const j=JSON.parse(t);S=j.sessions;C=j.clashes;L=j.limits;if(wantSel&&S.find(x=>x.id===wantSel)){sel=wantSel;first=true;wantSel=""}render()}catch{}}
 document.addEventListener("click",e=>{
  const f=e.target.closest("[data-face]");if(f){f.classList.remove("jump");void f.offsetWidth;f.classList.add("jump");const s=S.find(x=>x.id===f.dataset.face);if(s)toast(s.role+": "+(s.doing||"here"));e.stopPropagation();return}
  const it=e.target.closest("[data-sel]");if(it){sel=it.dataset.sel;try{localStorage.setItem("rma-sel",sel)}catch{}first=true;render();return}
@@ -190,6 +207,13 @@ document.addEventListener("click",e=>{
   else if(k==="save"){post("api/limits",{sessionTokens:Number($("lim").value),autoDowngrade:$("auto").checked}).then(l=>{L=l;showLimits=false;last="";render();toast(l.sessionTokens?"Limit set: "+kt(l.sessionTokens)+" per session":"No token limit")})}
   else if(k==="resume"){navigator.clipboard?.writeText("cd "+s.cwd+" && "+(s.agent==="codex"?"codex resume ":"claude --resume ")+s.id).catch(()=>{});toast("Copied resume command")}
   else if(k==="send"){sendMsg()}
+  else if(k==="newopen"){openNew()}
+  else if(k==="newcancel"){$("dlg").hidden=true}
+  else if(k==="newgo"){startNew()}
+  else if(k==="newagent"){if(OPT.agents[a.dataset.agent]){ND.agent=a.dataset.agent;ND.agentManual=true;drawNew()}else toast("Not installed on this computer")}
+  else if(k==="newrole"){ND.role=a.dataset.role;ND.manual=true;drawNew()}
+  else if(k==="roles"){showRoles=!showRoles;opts().then(render)}
+  else if(k==="setrole"){post("api/role",{id:s.id,role:a.dataset.role}).then(()=>{last="";load();toast(a.dataset.role?"Now a "+a.dataset.role+" agent":"Back to automatic")})}
   else if(k==="skills"){showSkills=!showSkills;render()}
   else if(k==="down"){post("api/downgrade",{id:s.id}).then(r=>{if(r.error){toast(r.error);return}navigator.clipboard?.writeText("/model "+r.model).catch(()=>{});toast("New sessions use "+r.model+". Copied /model "+r.model+" for this one")})}
   return}
@@ -209,5 +233,25 @@ async function sendMsg(){const t=$("msg"),s=S.find(x=>x.id===sel);if(!t||!s)retu
  const r=await post("api/send",{id:s.id,text}).catch(()=>({error:"The board is not answering."}));if(r.error){toast(r.error);return}
  fx("sent",0,0,text.replace(/\\s+/g," "));
  t.value="";t.style.height="28px";follow();s.sending=true;const sb=document.querySelector(".send");if(sb){sb.disabled=true;sb.textContent="Answering…"}toast("Sent to "+s.role);last=""}
+let OPT=null,ND=null,wantSel="",showRoles=false,dt=0;
+function mini(f,n){return '<svg width="'+n+'" height="'+n+'" viewBox="0 0 64 64">'+SH[f.shape](f.color)+EY[f.eyes]+"</svg>"}
+async function opts(){if(!OPT)OPT=await fetch("api/options").then(r=>r.json());return OPT}
+function chips(cur,auto,act){return OPT.roles.map(o=>'<span class="rc'+(o.role===cur?" on":"")+'" data-act="'+act+'" data-role="'+esc(o.role)+'" style="--c:'+o.color+'">'+mini(o,20)+esc(o.role)+(auto&&o.role===auto?"<em>AUTO</em>":"")+"</span>").join("")}
+function drawNew(){const o=OPT;
+ $("nagent").innerHTML=[["claude","Claude Code"],["codex","Codex"]].map(([k,l])=>'<span class="sg'+(ND.agent===k?" on":"")+(o.agents[k]?"":" off")+'" data-act="newagent" data-agent="'+k+'">'+l+(o.agents[k]?"":" (not installed)")+"</span>").join("");
+ $("nrole").innerHTML=chips(ND.role,ND.manual?"":ND.role,"newrole");
+ $("nauto").textContent=ND.manual?"you picked":"detected from your text";
+ $("nmrow").style.display=ND.agent==="claude"?"":"none"}
+async function openNew(){await opts();const cur=S.find(x=>x.id===sel)||S[0]||{};
+ ND={agent:OPT.defaultAgent,role:"Code",manual:false,agentManual:false};
+ const d=$("dlg");d.hidden=false;
+ d.innerHTML='<div class="dbg" data-act="newcancel"></div><div class="dcard"><div class="in"><h3>New session</h3><textarea id="ntext" placeholder="What should the agent do?"></textarea><div class="lbl">AI</div><div class="seg" id="nagent"></div><div class="lbl">Agent type <em id="nauto"></em></div><div class="chips" id="nrole"></div><div class="lbl">Folder</div><input class="f" id="ncwd" list="nfold" autocomplete="off"><datalist id="nfold">'+OPT.folders.map(f=>'<option value="'+esc(f)+'">').join("")+'</datalist><div id="nmrow"><div class="lbl" style="margin-bottom:6px">Model</div><select id="nmodel"><option value="">Default</option><option value="opus">Opus</option><option value="sonnet">Sonnet</option><option value="haiku">Haiku</option></select></div><div class="dact"><button class="btn" data-act="newcancel">Cancel</button><button class="btn new" data-act="newgo">Start</button></div></div></div>';
+ $("ncwd").value=cur.cwd||OPT.folders[0]||"";drawNew();$("ntext").focus()}
+document.addEventListener("input",e=>{if(e.target.id!=="ntext")return;clearTimeout(dt);dt=setTimeout(async()=>{const t=$("ntext")&&$("ntext").value;if(!t||!ND)return;const r=await fetch("api/detect?text="+encodeURIComponent(t)).then(r=>r.json()).catch(()=>null);if(!r||!ND)return;if(!ND.manual)ND.role=r.role;if(!ND.agentManual&&r.agent)ND.agent=r.agent;drawNew()},200)});
+document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!$("dlg").hidden)$("dlg").hidden=true;if(e.target.id==="ntext"&&e.key==="Enter"&&(e.metaKey||e.ctrlKey)){e.preventDefault();startNew()}});
+async function startNew(){const text=$("ntext").value.trim();if(!text){toast("Describe the task first");$("ntext").focus();return}
+ const r=await post("api/new",{agent:ND.agent,cwd:$("ncwd").value.trim(),text,role:ND.manual?ND.role:"",model:ND.agent==="claude"?$("nmodel").value:""}).catch(()=>({error:"The board is not answering."}));
+ if(r.error){toast(r.error);return}
+ $("dlg").hidden=true;wantSel=r.id||"";toast("Started a "+ND.role+" agent on "+(ND.agent==="codex"?"Codex":"Claude Code"));[1500,5000,12000].forEach(t=>setTimeout(()=>{last="";load()},t))}
 load();setInterval(load,3000);
 </script></body></html>`;

@@ -1,11 +1,15 @@
 // The agents board: every Claude Code and Codex session on this computer as an agent with a face, its channel,
 // its tokens against the limit, and skills for its job. Local only; started by `flisk up` or the Mac app.
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { statSync } from "node:fs";
+import { resolve } from "node:path";
 import { Hono } from "hono";
 import { lowerModel, readLimits, setProjectModel, writeLimits } from "../../../../hooks/limits.mjs";
 import { AGENTS } from "../../web/src/avatars";
 import { PAGE } from "./page";
-import { findClashes, readAllSessions, type Session } from "./sessions";
+import { addPending, applyRoles, ROLES, setRole } from "./prefs";
+import { findClashes, guessRole, readAllSessions, type Session } from "./sessions";
 import SKILLS from "./skills.json";
 
 /** The avatar for a session: always its role's own face and color (Code is blue, Design purple, ...). */
@@ -67,7 +71,40 @@ export function sendToSession(s: Session, text: string, run = spawn): Promise<vo
 	});
 }
 
-export function createApp(read = () => readAllSessions(), send = sendToSession) {
+/** Which of the two coding agents the board can start are installed. */
+export const installed = () => ({ claude: !!Bun.which("claude"), codex: !!Bun.which("codex") });
+
+export interface NewSession {
+	agent: "claude" | "codex";
+	cwd: string;
+	text: string;
+	model?: string;
+	/** Claude lets the caller choose the session id, so the board knows it at once. */
+	id?: string;
+}
+const MODELS = ["opus", "sonnet", "haiku"];
+
+/** Starts a new headless session in a folder; the prompt goes on stdin. Its transcript is read like any other. */
+export function startNewSession(n: NewSession, run = spawn): Promise<void> {
+	const [cmd, args] =
+		n.agent === "codex"
+			? ["codex", ["exec", "--skip-git-repo-check", "--sandbox", "workspace-write"]]
+			: ["claude", ["-p", "--session-id", n.id as string, "--permission-mode", "acceptEdits", ...(n.model ? ["--model", n.model] : [])]];
+	return new Promise((resolveStart, reject) => {
+		const child = run(cmd, args as string[], { cwd: n.cwd, stdio: ["pipe", "ignore", "ignore"] });
+		child.on("error", reject);
+		child.on("close", () => resolveStart());
+		child.stdin?.end(n.text);
+	});
+}
+
+export function createApp(
+	read = () => applyRoles(readAllSessions()),
+	send = sendToSession,
+	deps: { start?: typeof startNewSession; which?: typeof installed } = {},
+) {
+	const start = deps.start ?? startNewSession;
+	const which = deps.which ?? installed;
 	const app = new Hono();
 	app.get("/health", (c) => c.json({ status: "ok", service: "board" }));
 	app.get("/ready", (c) => c.json({ ready: true }));
@@ -114,6 +151,57 @@ export function createApp(read = () => readAllSessions(), send = sendToSession) 
 			.catch((e) => console.error(`send to ${s.id} failed:`, e))
 			.finally(() => sending.delete(s.id));
 		return c.json({ sent: true }, 202);
+	});
+	// What the New session dialog and the type picker need: installed agents, recent folders, the types and faces.
+	app.get("/api/options", (c) => {
+		const have = which();
+		const sessions = read();
+		const latest = sessions[0]?.agent;
+		const defaultAgent = latest && have[latest] ? latest : have.claude ? "claude" : have.codex ? "codex" : "claude";
+		return c.json({
+			agents: have,
+			defaultAgent,
+			folders: [...new Set(sessions.map((s) => s.cwd).filter(Boolean))].slice(0, 8),
+			roles: AGENTS.map((a) => ({ role: a.role, color: a.color, shape: a.shape, eyes: a.eyes })),
+		});
+	});
+	// Detects the agent type (and, if the text names it, the AI) from what you typed.
+	app.get("/api/detect", (c) => {
+		const text = c.req.query("text") ?? "";
+		return c.json({ role: guessRole(text, []), agent: /\b(codex|gpt|openai)\b/i.test(text) && which().codex ? "codex" : null });
+	});
+	// Gives an existing session a type, or with an empty role goes back to the board's guess.
+	app.post("/api/role", async (c) => {
+		if (!sameOrigin(c)) return c.json({ error: "Send JSON from the board." }, 403);
+		const { id, role } = (await c.req.json().catch(() => ({}))) as { id?: string; role?: string };
+		if (!id || !/^[\w-]{1,80}$/.test(id)) return c.json({ error: "Unknown session." }, 400);
+		if (role && !ROLES.includes(role)) return c.json({ error: "Unknown agent type." }, 400);
+		setRole(id, role || null);
+		return c.json({ id, role: role || null });
+	});
+	app.post("/api/new", async (c) => {
+		if (!sameOrigin(c)) return c.json({ error: "Send JSON from the board." }, 403);
+		const b = (await c.req.json().catch(() => ({}))) as { agent?: string; cwd?: string; text?: string; role?: string; model?: string };
+		const text = String(b.text ?? "").trim();
+		if (!text) return c.json({ error: "Describe the task first." }, 400);
+		if (text.length > PROMPT_LIMIT) return c.json({ error: "That message is too long." }, 400);
+		if (b.agent !== "claude" && b.agent !== "codex") return c.json({ error: "Pick Claude Code or Codex." }, 400);
+		if (!which()[b.agent]) return c.json({ error: `${b.agent === "codex" ? "Codex" : "Claude Code"} is not installed on this computer.` }, 400);
+		if (b.role && !ROLES.includes(b.role)) return c.json({ error: "Unknown agent type." }, 400);
+		const cwd = resolve(String(b.cwd ?? ""));
+		try {
+			if (!b.cwd || !statSync(cwd).isDirectory()) throw new Error("not a folder");
+		} catch {
+			return c.json({ error: "That folder does not exist." }, 400);
+		}
+		const model = b.agent === "claude" && b.model && MODELS.includes(b.model) ? b.model : undefined;
+		const id = b.agent === "claude" ? randomUUID() : undefined;
+		if (b.role) {
+			if (id) setRole(id, b.role);
+			else addPending({ agent: b.agent, cwd, prefix: (text.split("\n")[0] ?? "").slice(0, 40), role: b.role });
+		}
+		start({ agent: b.agent, cwd, text, model, id }).catch((e) => console.error("start failed:", e));
+		return c.json({ started: true, id }, 202);
 	});
 	app.get("/", (c) => c.html(PAGE));
 	return app;

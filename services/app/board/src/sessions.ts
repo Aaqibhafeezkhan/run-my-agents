@@ -36,6 +36,10 @@ export interface Session {
 	role: string;
 	/** Pinned in the Claude desktop app. */
 	pinned: boolean;
+	/** True when you chose this session's type, instead of the board guessing it. */
+	roleSet?: boolean;
+	/** Whether the Claude desktop app lists this session; undefined when that app's files aren't there. */
+	viaApp?: boolean;
 	/** The last few turns, oldest first, for the agent's channel. */
 	feed: FeedItem[];
 }
@@ -270,6 +274,7 @@ export function readAllSessions(now = Date.now()): Session[] {
 	});
 	for (const s of claude) {
 		const m = meta.get(s.id);
+		if (meta.size) s.viaApp = !!m;
 		if (!m) continue;
 		if (m.title) s.title = m.title;
 		s.pinned = m.pinned;
