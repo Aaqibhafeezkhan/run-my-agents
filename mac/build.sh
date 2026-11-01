@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Builds "build/Run My Agents.app" next to this script.
+#   ./build.sh            dev build: runs the board from this checkout with Bun
+#   ./build.sh --release  universal app (Apple Silicon + Intel) with the board compiled in, no Bun needed,
+#                         zipped to build/Run-My-Agents-macOS.zip
 set -euo pipefail
+release=false; [ "${1:-}" = "--release" ] && release=true
 here="$(cd "$(dirname "$0")" && pwd)"
 board="${RUN_MY_AGENTS_BOARD:-$(cd "$here/../services/app/board" && pwd)}"
 out="$here/build"; app="$out/Run My Agents.app"
@@ -19,7 +23,21 @@ cp "$out/tmp/icon-1024.png" "$here/icon/icon-1024.png"
 
 # binary (bake the board dir)
 sed "s|__BAKED_BOARD_DIR__|$board|" "$here/RunMyAgents.swift" > "$out/tmp/main.swift"
-swiftc -O "$out/tmp/main.swift" -o "$app/Contents/MacOS/RunMyAgents" -framework AppKit -framework WebKit
+if $release; then
+  for arch in arm64 x86_64; do
+    swiftc -O -target "$arch-apple-macos13.0" "$out/tmp/main.swift" -o "$out/tmp/RunMyAgents-$arch" -framework AppKit -framework WebKit
+  done
+  lipo -create "$out/tmp/RunMyAgents-arm64" "$out/tmp/RunMyAgents-x86_64" -output "$app/Contents/MacOS/RunMyAgents"
+  # The board as one executable per architecture, joined into a universal binary.
+  (cd "$board" && bun install --frozen-lockfile >/dev/null 2>&1 || bun install >/dev/null)
+  for t in arm64 x64; do
+    (cd "$board" && bun build --compile --minify --target="bun-darwin-$t" src/index.ts --outfile "$out/tmp/board-$t" >/dev/null)
+  done
+  lipo -create "$out/tmp/board-arm64" "$out/tmp/board-x64" -output "$app/Contents/Resources/board" 2>/dev/null \
+    || cp "$out/tmp/board-$(uname -m | sed s/x86_64/x64/)" "$app/Contents/Resources/board"
+else
+  swiftc -O "$out/tmp/main.swift" -o "$app/Contents/MacOS/RunMyAgents" -framework AppKit -framework WebKit
+fi
 
 cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -40,4 +58,9 @@ cat > "$app/Contents/Info.plist" <<PLIST
 </dict></plist>
 PLIST
 codesign --force --deep -s - "$app"
+if $release; then
+  rm -f "$out/Run-My-Agents-macOS.zip"
+  (cd "$out" && ditto -c -k --keepParent "Run My Agents.app" "Run-My-Agents-macOS.zip")
+  echo "Zipped: $out/Run-My-Agents-macOS.zip"
+fi
 echo "Built: $app (board: $board)"

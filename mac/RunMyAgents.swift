@@ -37,9 +37,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     env["PORT"] = "\(port)"
     env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:\(home)/.bun/bin:/usr/bin:/bin:" + (env["PATH"] ?? "")
     let p = Process()
-    p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-    p.arguments = ["bun", "src/index.ts"]
-    p.currentDirectoryURL = URL(fileURLWithPath: dir)
+    // A release app carries the board compiled into one binary (no Bun needed); a dev build runs the source.
+    let bundled = Bundle.main.url(forResource: "board", withExtension: nil)
+    if let bundled, ProcessInfo.processInfo.environment["RUN_MY_AGENTS_BOARD"] == nil {
+      p.executableURL = bundled
+    } else {
+      p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+      p.arguments = ["bun", "src/index.ts"]
+      p.currentDirectoryURL = URL(fileURLWithPath: dir)
+    }
     p.environment = env
     let log = FileManager.default.temporaryDirectory.appendingPathComponent("run-my-agents-board.log")
     FileManager.default.createFile(atPath: log.path, contents: nil)
