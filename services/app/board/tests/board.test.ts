@@ -64,3 +64,55 @@ describe("board", () => {
 		expect(html).toContain("No Claude Code sessions in the last hour");
 	});
 });
+
+describe("codex, limits and skills", () => {
+	it("reads a Codex rollout: id, model, tokens without cache reads, and the turns", async () => {
+		const { parseCodexSession } = await import("../src/sessions");
+		const s = parseCodexSession(
+			[
+				line({ type: "session_meta", payload: { id: "cx1", cwd: "/repo" } }),
+				line({ type: "turn_context", payload: { model: "gpt-6" } }),
+				line({ type: "response_item", payload: { type: "message", role: "user", content: [{ text: "add a sitemap" }] } }),
+				line({ type: "response_item", payload: { type: "message", role: "assistant", content: [{ text: "Done." }] } }),
+				line({ type: "response_item", payload: { type: "custom_tool_call", name: "exec" } }),
+				line({ type: "event_msg", payload: { type: "token_count", info: { total_token_usage: { input_tokens: 1000, cached_input_tokens: 800, output_tokens: 50 } } } }),
+			],
+			now,
+		);
+		expect(s).toMatchObject({ id: "cx1", agent: "codex", model: "gpt-6", role: "SEO", tokens: { used: 250, cached: 800 } });
+		expect(s?.feed.map((f) => f.who)).toEqual(["you", "agent"]);
+		expect(s?.feed[1].tools).toEqual(["exec"]);
+	});
+
+	it("only ever moves a model down the ladder", async () => {
+		const { lowerModel } = await import("../../../../hooks/limits.mjs");
+		expect(lowerModel("claude-opus-5-5")).toBe("sonnet");
+		expect(lowerModel("claude-sonnet-5-5")).toBe("haiku");
+		expect(lowerModel("claude-haiku-5-5")).toBeNull();
+		expect(lowerModel("gpt-6")).toBeNull();
+	});
+
+	it("refuses writes that are not JSON or come from another site", async () => {
+		const app = createApp(() => []);
+		expect((await app.request("/api/limits", { method: "POST", body: "sessionTokens=1" })).status).toBe(403);
+		const evil = await app.request("/api/limits", {
+			method: "POST",
+			headers: { "content-type": "application/json", origin: "https://evil.example" },
+			body: "{}",
+		});
+		expect(evil.status).toBe(403);
+	});
+
+	it("will not downgrade a session that is already on the cheapest model", async () => {
+		const s = parseSession("h", [ask("x"), line({ type: "assistant", message: { model: "claude-haiku-5-5", content: [{ type: "text", text: "hi" }] } })], now);
+		const app = createApp(() => (s ? [s] : []));
+		const res = await app.request("/api/downgrade", { method: "POST", headers: { "content-type": "application/json" }, body: '{"id":"h"}' });
+		expect(res.status).toBe(400);
+	});
+
+	it("suggests skills for each role from the roadmap catalog", async () => {
+		const { skillsFor } = await import("../src/index");
+		expect(skillsFor("Design").every((k) => k.cat === "frontend")).toBe(true);
+		expect(skillsFor("Code").length).toBe(8);
+	});
+});

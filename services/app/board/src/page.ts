@@ -57,6 +57,18 @@ body{background:#06060a;color:var(--text);font:13px/1.5 var(--body);-webkit-font
 .box span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .box b{display:inline-block;width:7px;height:13px;background:var(--mint);vertical-align:-2px;animation:cur 1s steps(1) infinite}@keyframes cur{50%{opacity:0}}
 .toast{position:fixed;right:24px;bottom:24px;background:var(--green);color:#04120a;font-size:12px;padding:6px 12px;border-radius:var(--r-row);opacity:0;transform:translateY(6px);transition:opacity .3s,transform .3s;pointer-events:none}.toast.on{opacity:1;transform:none}
+.ag{font:600 9px var(--mono);letter-spacing:.04em;border-radius:var(--r-chip);padding:1px 5px;margin-left:6px;vertical-align:1px;background:#2a2340;color:#c4b5fd}.ag.codex{background:#123028;color:#6ee7b7}
+.tok{font:10px var(--mono);color:var(--muted)}
+.meter{display:flex;align-items:center;gap:8px;padding:8px 16px;border-bottom:1px solid var(--line);font:11px var(--mono);color:var(--muted)}
+.bar{flex:1;height:6px;border-radius:999px;background:#1d1d27;overflow:hidden}.bar i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,var(--green),var(--mint));transition:width .6s;background-size:200% 100%;animation:shim 2.4s linear infinite}
+.bar.hot i{background:linear-gradient(90deg,var(--amber),#fb7185);background-size:200% 100%}
+.btn{font:600 11px var(--body);padding:4px 10px;border-radius:999px;background:#1d1d27;color:var(--text);cursor:pointer;border:0;transition:background .2s,transform .2s}.btn:hover{background:#2a2a38;transform:translateY(-1px)}.btn.go{background:var(--amber);color:#2a1a00}.btn.go:hover{background:#fbbf24}
+.panel{margin:var(--p2);padding:10px;border-radius:var(--r-row);background:#1a1a22;display:flex;flex-direction:column;gap:8px;font-size:12px;animation:in .3s ease both}
+.panel input[type=number]{width:100%;background:#0f0f15;border:1px solid var(--line);border-radius:var(--r-chip);color:var(--text);padding:6px 8px;font:12px var(--mono)}
+.panel label{display:flex;gap:8px;align-items:center;cursor:pointer;color:var(--muted)}.panel label:hover{color:var(--text)}
+.skills{display:grid;grid-template-columns:repeat(auto-fill,minmax(14rem,1fr));gap:6px;padding:var(--p2) 10px;border-bottom:1px solid var(--line);animation:in .3s ease both}
+.sk{padding:8px 10px;border-radius:var(--r-row);background:#1a1a22;cursor:pointer;transition:background .2s,transform .2s}.sk:hover{background:#23232e;transform:translateY(-2px)}
+.sk b{font:600 12px var(--mono);color:var(--mint)}.sk p{margin:2px 0 0;color:var(--muted);font-size:11px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .empty{color:var(--muted);text-align:center;margin:auto;padding:40px}
 @media (max-width:720px){.app{grid-template-columns:1fr}.side{max-height:40vh}}
 </style></head><body>
@@ -64,7 +76,7 @@ body{background:#06060a;color:var(--text);font:13px/1.5 var(--body);-webkit-font
 <radialGradient id="sh" cx="35%" cy="28%" r="75%"><stop offset="0" stop-color="#fff" stop-opacity=".55"/><stop offset=".45" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".45"/></radialGradient>
 <radialGradient id="eye" cx="40%" cy="35%" r="70%"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#cfd3e0"/></radialGradient>
 </defs></svg>
-<div class="app"><nav class="side" id="side"></nav><main class="main"><div class="hd" id="hd"></div><div id="warns"></div><div class="feed" id="feed"></div><div class="box" id="box"></div></main></div>
+<div class="app"><nav class="side" id="side"></nav><main class="main"><div class="hd" id="hd"></div><div id="meter"></div><div id="skills"></div><div id="warns"></div><div class="feed" id="feed"></div><div class="box" id="box"></div></main></div>
 <div class="toast" id="toast"></div>
 <script>
 const SH={circle:c=>'<circle cx="32" cy="32" r="28" fill="'+c+'"/><circle cx="32" cy="32" r="28" fill="url(#sh)"/>',
@@ -82,10 +94,12 @@ cyclops:'<g class="lid"><circle cx="32" cy="30" r="12" fill="'+W+'"/><g class="p
 happy:'<g class="pup"><path d="M16 32q6-9 12 0M36 32q6-9 12 0" fill="none" stroke="'+K+'" stroke-width="3.5" stroke-linecap="round"/></g>',
 bars:'<g class="lid"><g class="pup"><rect x="20" y="23" width="4" height="13" rx="2" fill="'+K+'"/><rect x="40" y="23" width="4" height="13" rx="2" fill="'+K+'"/></g></g>',
 squint:'<g class="lid"><rect x="15" y="27" width="14" height="7" rx="3.5" fill="'+W+'"/><rect x="35" y="27" width="14" height="7" rx="3.5" fill="'+W+'"/><g class="pup"><rect x="20" y="28" width="4" height="5" rx="1.5" fill="'+K+'"/><rect x="40" y="28" width="4" height="5" rx="1.5" fill="'+K+'"/></g></g>'};
-let S=[],C=[],last="",feedKey="",sel=localStorage.getItem("rma-sel"),fold={},seen={},paused={},muted={},first=true;
+let S=[],C=[],L={sessionTokens:0,autoDowngrade:false},showLimits=false,showSkills=false,last="",feedKey="",sel=localStorage.getItem("rma-sel"),fold={},seen={},paused={},muted={},first=true;
 const $=id=>document.getElementById(id);
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]);
 const ago=ms=>{const s=Math.round(ms/1e3);return s<60?s+"s":s<3600?Math.round(s/60)+" min":Math.round(s/3600)+" h"};
+const kt=n=>n>=1e6?(n/1e6).toFixed(1)+"M":n>=1e3?Math.round(n/1e3)+"k":String(n);
+const post=(u,b)=>fetch(u,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(b)}).then(r=>r.json());
 const hm=t=>new Date(t).toTimeString().slice(0,5);
 function toast(t){const el=$("toast");el.textContent=t;el.classList.add("on");clearTimeout(el._t);el._t=setTimeout(()=>el.classList.remove("on"),1400)}
 const state=s=>C.some(c=>c.sessions.includes(s.id))?"y":Date.now()-s.updatedAt<120000?"g":"z";
@@ -94,9 +108,12 @@ function render(){
  if(!S.length){$("side").innerHTML='<div class="proj">Run My Agents</div>';$("hd").innerHTML="";$("warns").innerHTML="";$("feed").innerHTML='<p class="empty">No Claude Code sessions in the last hour. Start one and it shows up here.</p>';$("box").innerHTML="";return}
  if(!S.find(s=>s.id===sel))sel=S[0].id;
  const groups=[["Working",s=>state(s)!=="z"],["Idle",s=>state(s)==="z"]];
- $("side").innerHTML='<div class="proj" data-act="proj"><span>Run My Agents</span><small>'+S.length+" agents</small></div>"+groups.map(([g,f])=>{const xs=S.filter(f);if(!xs.length)return"";return '<div class="grp" data-grp="'+g+'">'+(fold[g]?"▸":"▾")+" "+g+" · "+xs.length+"</div>"+(fold[g]?"":xs.map(s=>{const unread=(s.feed.length-(seen[s.id]??s.feed.length));return '<div class="it '+(s.id===sel?"sel ":"")+(state(s)==="z"?"idle":"")+'" data-sel="'+s.id+'">'+face(s,36)+'<div class="t">'+esc(s.role)+"<small>"+esc(s.doing||s.title||"")+" · "+ago(Date.now()-s.updatedAt)+"</small></div>"+(unread>0&&s.id!==sel?'<span class="badge">'+unread+"</span>":"")+"</div>"}).join(""))}).join("");
+ $("side").innerHTML='<div class="proj" data-act="proj"><span>Run My Agents</span><small>'+S.length+" agents</small></div>"+'<div style="padding:0 6px"><button class="btn" data-act="limits">'+(L.sessionTokens?"Limit "+kt(L.sessionTokens)+" per session":"Set token limit")+"</button></div>"+(showLimits?'<div class="panel"><div>Tokens per session (0 = no limit)</div><input type="number" id="lim" min="0" step="50000" value="'+L.sessionTokens+'"><label><input type="checkbox" id="auto" '+(L.autoDowngrade?"checked":"")+'> At the limit, move new sessions to a cheaper model</label><div style="color:var(--muted);font-size:11px">Models only move down: Opus, then Sonnet, then Haiku. Never up.</div><button class="btn go" data-act="save">Save</button></div>':"")+groups.map(([g,f])=>{const xs=S.filter(f);if(!xs.length)return"";return '<div class="grp" data-grp="'+g+'">'+(fold[g]?"▸":"▾")+" "+g+" · "+xs.length+"</div>"+(fold[g]?"":xs.map(s=>{const unread=(s.feed.length-(seen[s.id]??s.feed.length));return '<div class="it '+(s.id===sel?"sel ":"")+(state(s)==="z"?"idle":"")+'" data-sel="'+s.id+'">'+face(s,36)+'<div class="t">'+esc(s.role)+'<span class="ag '+s.agent+'">'+(s.agent==="codex"?"CODEX":"CLAUDE")+"</span><small>"+esc(s.doing||s.title||"")+" · "+ago(Date.now()-s.updatedAt)+'</small><span class="tok">'+kt(s.tokens.used)+" tok"+(s.model?" · "+esc(s.model.replace(/^claude-/,"")):"")+"</span></div>"+(unread>0&&s.id!==sel?'<span class="badge">'+unread+"</span>":"")+"</div>"}).join(""))}).join("");
  const s=S.find(x=>x.id===sel);seen[s.id]=s.feed.length;
- $("hd").innerHTML=face(s,30)+"<div>"+esc(s.role)+" · "+esc(s.title||"Untitled")+"<br><small>"+esc(s.branch||"")+" · "+esc(s.cwd.split("/").pop()||"")+" · session "+s.id.slice(0,8)+'</small></div><div class="hb"><span data-act="files">Files</span><span data-act="mute">'+(muted[s.id]?"Unmute":"Mute")+"</span></div>";
+ $("hd").innerHTML=face(s,30)+"<div>"+esc(s.role)+" · "+esc(s.title||"Untitled")+"<br><small>"+esc(s.branch||"")+" · "+esc(s.cwd.split("/").pop()||"")+" · session "+s.id.slice(0,8)+'</small></div><div class="hb"><span data-act="skills">Skills</span><span data-act="files">Files</span><span data-act="mute">'+(muted[s.id]?"Unmute":"Mute")+"</span></div>";
+ const over=L.sessionTokens&&s.tokens.used>=L.sessionTokens,pct=L.sessionTokens?Math.min(100,s.tokens.used/L.sessionTokens*100):0;
+ $("meter").innerHTML='<div class="meter"><span>'+esc(s.model||s.agent)+"</span>"+(L.sessionTokens?'<div class="bar'+(over?" hot":"")+'"><i style="width:'+pct+'%"></i></div><span>'+kt(s.tokens.used)+" / "+kt(L.sessionTokens)+"</span>":'<span style="flex:1">'+kt(s.tokens.used)+" tokens · "+kt(s.tokens.cached)+" cached</span>")+(s.lower?'<button class="btn'+(over?" go":"")+'" data-act="down">Move to '+s.lower+"</button>":"")+"</div>";
+ $("skills").innerHTML=showSkills?'<div class="skills">'+s.skills.map(k=>'<div class="sk" data-skill="'+esc(k.name)+'" title="'+esc(k.source+"/"+k.path)+'"><b>/'+esc(k.name)+"</b><p>"+esc(k.what)+"</p></div>").join("")+"</div>":"";
  const mine=C.filter(c=>c.sessions.includes(s.id));
  $("warns").innerHTML=mine.filter(c=>!muted[s.id]).map(c=>{const other=c.sessions.filter(x=>x!==s.id).map(x=>(S.find(y=>y.id===x)||{role:"another session"}).role).join(", ");return '<div class="warn" data-act="go" data-file="'+esc(c.file)+'" data-other="'+c.sessions.find(x=>x!==s.id)+'"><span>⚠ '+esc(other)+" also edited "+esc(c.file.split("/").pop())+" in the last 10 min</span><span>Open "+esc(other)+"</span></div>"}).join("");
  const feed=$("feed"),stick=feed.scrollTop+feed.clientHeight>=feed.scrollHeight-40;
@@ -107,7 +124,7 @@ function render(){
  $("box").innerHTML="<span>$ cd "+esc(s.cwd)+" && claude --resume "+s.id+" <b></b></span><span>Copy</span>";
  first=false;
 }
-async function load(){try{const r=await fetch("api/sessions");const t=await r.text();if(t===last)return;last=t;const j=JSON.parse(t);S=j.sessions;C=j.clashes;render()}catch{}}
+async function load(){if(showLimits&&document.activeElement?.id==="lim")return;try{const r=await fetch("api/sessions");const t=await r.text();if(t===last)return;last=t;const j=JSON.parse(t);S=j.sessions;C=j.clashes;L=j.limits;render()}catch{}}
 document.addEventListener("click",e=>{
  const f=e.target.closest("[data-face]");if(f){f.classList.remove("jump");void f.offsetWidth;f.classList.add("jump");const s=S.find(x=>x.id===f.dataset.face);if(s)toast(s.role+": "+(s.doing||"here"));e.stopPropagation();return}
  const it=e.target.closest("[data-sel]");if(it){sel=it.dataset.sel;try{localStorage.setItem("rma-sel",sel)}catch{}first=true;render();return}
@@ -118,8 +135,13 @@ document.addEventListener("click",e=>{
   else if(k==="mute"){muted[s.id]=!muted[s.id];render();toast(muted[s.id]?"Clash warnings hidden for "+s.role:"Clash warnings shown")}
   else if(k==="files"){const fs=[...new Set(s.edits.map(x=>x.file.split("/").pop()))];toast(fs.length?s.role+" edited "+fs.slice(-5).join(", "):s.role+" hasn't edited files")}
   else if(k==="tool"){navigator.clipboard?.writeText(a.textContent).catch(()=>{});toast("Copied "+a.textContent)}
-  else if(k==="proj"){load();toast("Refreshed")}
+  else if(k==="proj"){last="";load();toast("Refreshed")}
+  else if(k==="limits"){showLimits=!showLimits;render()}
+  else if(k==="save"){post("api/limits",{sessionTokens:Number($("lim").value),autoDowngrade:$("auto").checked}).then(l=>{L=l;showLimits=false;last="";render();toast(l.sessionTokens?"Limit set: "+kt(l.sessionTokens)+" per session":"No token limit")})}
+  else if(k==="skills"){showSkills=!showSkills;render()}
+  else if(k==="down"){post("api/downgrade",{id:s.id}).then(r=>{if(r.error){toast(r.error);return}navigator.clipboard?.writeText("/model "+r.model).catch(()=>{});toast("New sessions use "+r.model+". Copied /model "+r.model+" for this one")})}
   return}
+ const sk=e.target.closest("[data-skill]");if(sk){navigator.clipboard?.writeText("/"+sk.dataset.skill).catch(()=>{});toast("Copied /"+sk.dataset.skill);return}
  const m=e.target.closest("[data-msg]");if(m){m.classList.toggle("open");return}
  if(e.target.closest("#box")&&s){navigator.clipboard?.writeText("cd "+s.cwd+" && claude --resume "+s.id).catch(()=>{});toast("Copied resume command")}
 });

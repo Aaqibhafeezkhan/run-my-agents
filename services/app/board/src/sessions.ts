@@ -8,8 +8,20 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 
+export interface Tokens {
+	/** New input, cache writes and output: what counts toward a limit. */
+	used: number;
+	/** Input served from the prompt cache, shown apart because it costs far less. */
+	cached: number;
+}
+
 export interface Session {
 	id: string;
+	/** Which coding agent wrote the session. */
+	agent: "claude" | "codex";
+	/** The model of the last reply, like claude-opus-5-5 or gpt-6. */
+	model: string;
+	tokens: Tokens;
 	cwd: string;
 	branch: string;
 	title: string;
@@ -69,7 +81,7 @@ function textOf(content: unknown): string {
 
 /** One transcript to a Session, or undefined when it has no conversation in it. */
 export function parseSession(id: string, lines: string[], updatedAt: number): Session | undefined {
-	const s: Session = { id, cwd: "", branch: "", title: "", said: "", doing: "", edits: [], updatedAt, role: "Code", feed: [] };
+	const s: Session = { id, agent: "claude", model: "", tokens: { used: 0, cached: 0 }, cwd: "", branch: "", title: "", said: "", doing: "", edits: [], updatedAt, role: "Code", feed: [] };
 	for (const line of lines) {
 		let e: {
 			type?: string;
@@ -77,7 +89,7 @@ export function parseSession(id: string, lines: string[], updatedAt: number): Se
 			gitBranch?: string;
 			timestamp?: string;
 			isMeta?: boolean;
-			message?: { content?: unknown };
+			message?: { content?: unknown; model?: string; usage?: Record<string, number> };
 		};
 		try {
 			e = JSON.parse(line);
@@ -95,6 +107,12 @@ export function parseSession(id: string, lines: string[], updatedAt: number): Se
 			const t = textOf(e.message?.content).trim();
 			if (t && !t.startsWith("<")) s.feed.push({ at, who: "you", text: t.slice(0, 400), tools: [] });
 		}
+		const u = e.type === "assistant" ? e.message?.usage : undefined;
+		if (u) {
+			s.tokens.used += (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.output_tokens ?? 0);
+			s.tokens.cached += u.cache_read_input_tokens ?? 0;
+		}
+		if (e.type === "assistant" && e.message?.model && !e.message.model.startsWith("<")) s.model = e.message.model;
 		if (e.type === "assistant" && Array.isArray(e.message?.content)) {
 			const words = textOf(e.message.content).trim();
 			if (words) s.said = words.replace(/\s+/g, " ").slice(0, 160);
@@ -117,6 +135,79 @@ export function parseSession(id: string, lines: string[], updatedAt: number): Se
 	s.feed = s.feed.filter((f) => f.text || f.tools.length).slice(-FEED_SIZE);
 	s.role = guessRole(s.title, s.edits.map((x) => x.file));
 	return s;
+}
+
+/** One Codex rollout (~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl) to a Session. */
+export function parseCodexSession(lines: string[], updatedAt: number): Session | undefined {
+	const s: Session = { id: "", agent: "codex", model: "", tokens: { used: 0, cached: 0 }, cwd: "", branch: "", title: "", said: "", doing: "", edits: [], updatedAt, role: "Code", feed: [] };
+	for (const line of lines) {
+		let e: { timestamp?: string; type?: string; payload?: Record<string, unknown> };
+		try {
+			e = JSON.parse(line);
+		} catch {
+			continue;
+		}
+		const p = e.payload ?? {};
+		const at = e.timestamp ? Date.parse(e.timestamp) : updatedAt;
+		if (e.type === "session_meta") {
+			s.id = String(p.id ?? p.session_id ?? "");
+			s.cwd = String(p.cwd ?? "");
+			const git = p.git as { branch?: string } | undefined;
+			if (git?.branch) s.branch = git.branch;
+		}
+		if (e.type === "turn_context" && typeof p.model === "string") s.model = p.model;
+		if (e.type === "event_msg" && p.type === "token_count") {
+			const t = (p.info as { total_token_usage?: Record<string, number> } | null)?.total_token_usage;
+			if (t) s.tokens = { used: (t.input_tokens ?? 0) - (t.cached_input_tokens ?? 0) + (t.output_tokens ?? 0), cached: t.cached_input_tokens ?? 0 };
+		}
+		if (e.type === "response_item" && p.type === "message" && (p.role === "user" || p.role === "assistant")) {
+			const text = ((p.content as { text?: string }[]) ?? []).map((c) => c.text ?? "").join(" ").trim();
+			if (!text || text.startsWith("<")) continue;
+			if (p.role === "user") {
+				if (!s.title) s.title = text.split("\n")[0].slice(0, 90);
+				s.feed.push({ at, who: "you", text: text.slice(0, 400), tools: [] });
+			} else {
+				s.said = text.replace(/\s+/g, " ").slice(0, 160);
+				s.feed.push({ at, who: "agent", text: text.slice(0, 600), tools: [] });
+			}
+		}
+		if (e.type === "response_item" && (p.type === "custom_tool_call" || p.type === "function_call")) {
+			s.doing = String(p.name ?? "tool");
+			const last = s.feed[s.feed.length - 1];
+			if (last?.who === "agent" && last.tools.length < 6) last.tools.push(s.doing);
+		}
+	}
+	if (!s.id || (!s.title && !s.said)) return undefined;
+	s.role = guessRole(s.title, []);
+	s.feed = s.feed.slice(-FEED_SIZE);
+	return s;
+}
+
+/** Codex sessions changed within maxAgeMs. Rollouts sit in day folders, so only the last two days are read. */
+export function readCodexSessions(
+	root = process.env.CODEX_SESSIONS_DIR || join(homedir(), ".codex", "sessions"),
+	maxAgeMs = 60 * 60_000,
+	now = Date.now(),
+): Session[] {
+	const out: Session[] = [];
+	for (const d of [0, 1]) {
+		const day = new Date(now - d * 86_400_000);
+		const dir = join(root, String(day.getFullYear()), String(day.getMonth() + 1).padStart(2, "0"), String(day.getDate()).padStart(2, "0"));
+		let files: string[] = [];
+		try {
+			files = readdirSync(dir).filter((f) => f.endsWith(".jsonl"));
+		} catch {
+			continue;
+		}
+		for (const f of files) {
+			const path = join(dir, f);
+			const mtime = statSync(path).mtimeMs;
+			if (now - mtime > maxAgeMs) continue;
+			const s = parseCodexSession(readFileSync(path, "utf8").split("\n"), mtime);
+			if (s) out.push(s);
+		}
+	}
+	return out;
 }
 
 /** Files edited by two or more sessions within the window. */
@@ -159,4 +250,11 @@ export function readSessions(
 		}
 	}
 	return out.sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+/** Every agent's sessions on this computer, newest first. */
+export function readAllSessions(now = Date.now()): Session[] {
+	return [...readSessions(undefined, undefined, now), ...readCodexSessions(undefined, undefined, now)].sort(
+		(a, b) => b.updatedAt - a.updatedAt,
+	);
 }

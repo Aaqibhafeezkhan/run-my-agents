@@ -66,3 +66,21 @@ cd services/app/board && bun install && bun start
 ```
 
 Then open http://localhost:4100. It refreshes every 5 seconds. With [Flisk](https://github.com/flisk-sh/flisk), `flisk up` starts it as a local process.
+
+## Token limits
+
+Set a token limit per session on the board. When a Claude Code session passes it, the plugin stops it once and
+tells it to move to the next cheaper model: Opus, then Sonnet, then Haiku. It never moves a model up. With
+"move new sessions to a cheaper model" on, it also writes that model to the project's
+`.claude/settings.local.json`, so new sessions there start on it. Limits live in `~/.run-my-agents/limits.json`.
+
+## Other agents and skills
+
+The board reads Codex sessions from `~/.codex/sessions` as well as Claude Code's. Each agent's Skills drawer suggests
+skills for its job from the [DevEx Roadmap](https://roadmap.flisk.si) catalog (`bun scripts/skills.ts <roadmap checkout>`
+refreshes `services/app/board/src/skills.json`).
+
+## Mac app
+
+`mac/build.sh` builds `mac/build/Run My Agents.app`: the board in a native window, plus a menu bar item. It starts
+the board itself if nothing answers on port 4100. See [mac/README.md](mac/README.md).

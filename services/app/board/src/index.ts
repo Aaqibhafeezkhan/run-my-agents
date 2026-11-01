@@ -1,9 +1,11 @@
-// The agents board: every Claude Code session on this computer as a card with a face, what it is doing and the
-// files it touched, and a warning when two sessions edit the same file. Local only; started by `flisk up`.
+// The agents board: every Claude Code and Codex session on this computer as an agent with a face, its channel,
+// its tokens against the limit, and skills for its job. Local only; started by `flisk up` or the Mac app.
 import { Hono } from "hono";
+import { lowerModel, readLimits, setProjectModel, writeLimits } from "../../../../hooks/limits.mjs";
 import { AGENTS } from "../../web/src/avatars";
 import { PAGE } from "./page";
-import { findClashes, readSessions, type Session } from "./sessions";
+import { findClashes, readAllSessions, type Session } from "./sessions";
+import SKILLS from "./skills.json";
 
 /** The avatar for a session: its role's face, or for plain Code sessions one picked from the id. */
 export function faceOf(s: Session) {
@@ -12,16 +14,68 @@ export function faceOf(s: Session) {
 	return { shape: a.shape, eyes: a.eyes, color: a.color };
 }
 
-export function createApp(read = () => readSessions()) {
+/** Which roadmap skill categories fit each agent's job. */
+const ROLE_CATS: Record<string, string[]> = {
+	Code: ["code", "debug", "test"],
+	Design: ["frontend"],
+	Planner: ["plan", "review"],
+	Chores: ["git", "ops"],
+	SEO: ["docs", "frontend"],
+	Social: ["docs"],
+	Video: ["frontend", "docs"],
+	Calls: ["docs", "plan"],
+	Calendar: ["plan"],
+};
+
+/** Up to `n` skills for a role, Flisk's own first. */
+export function skillsFor(role: string, n = 8) {
+	const cats = ROLE_CATS[role] ?? ROLE_CATS.Code;
+	return SKILLS.filter((s) => cats.includes(s.cat))
+		.sort((a, b) => Number(b.source.startsWith("flisk-sh/")) - Number(a.source.startsWith("flisk-sh/")))
+		.slice(0, n);
+}
+
+/**
+ * Writes come only from this page: a JSON body (which a cross-site form cannot send without a preflight this
+ * server never answers) and, when the browser sends one, a localhost Origin.
+ */
+function sameOrigin(c: { req: { header: (n: string) => string | undefined } }): boolean {
+	if (!(c.req.header("content-type") ?? "").startsWith("application/json")) return false;
+	const origin = c.req.header("origin");
+	return !origin || /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin);
+}
+
+export function createApp(read = () => readAllSessions()) {
 	const app = new Hono();
 	app.get("/health", (c) => c.json({ status: "ok", service: "board" }));
 	app.get("/ready", (c) => c.json({ ready: true }));
 	app.get("/api/sessions", (c) => {
 		const sessions = read();
+		const limits = readLimits();
 		return c.json({
-			sessions: sessions.map((s) => ({ ...s, face: faceOf(s) })),
+			sessions: sessions.map((s) => ({
+				...s,
+				face: faceOf(s),
+				lower: s.agent === "claude" ? lowerModel(s.model) : null,
+				skills: skillsFor(s.role),
+			})),
 			clashes: findClashes(sessions),
+			limits,
 		});
+	});
+	app.post("/api/limits", async (c) => {
+		if (!sameOrigin(c)) return c.json({ error: "Send JSON from the board." }, 403);
+		return c.json(writeLimits(await c.req.json().catch(() => ({}))));
+	});
+	// Moves a Claude project's new sessions one step down the model ladder. Never up: the target is computed
+	// here from the session's own model, not taken from the request.
+	app.post("/api/downgrade", async (c) => {
+		if (!sameOrigin(c)) return c.json({ error: "Send JSON from the board." }, 403);
+		const { id } = (await c.req.json().catch(() => ({}))) as { id?: string };
+		const s = read().find((x) => x.id === id && x.agent === "claude");
+		const lower = s ? lowerModel(s.model) : null;
+		if (!s || !s.cwd || !lower) return c.json({ error: "No cheaper model for this session." }, 400);
+		return c.json({ model: lower, file: setProjectModel(s.cwd, lower) });
 	});
 	app.get("/", (c) => c.html(PAGE));
 	return app;
