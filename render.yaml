@@ -16,6 +16,6 @@ services:
     envVars:
       # The address people use. Without a custom domain, your service's https://<name>.onrender.com/.
       - key: PUBLIC_URL
-        value: https://run-my-agents.onrender.com/
+        value: https://run-my-agents.flisk.si/
       - key: TRUST_PROXY
         value: last-forwarded
