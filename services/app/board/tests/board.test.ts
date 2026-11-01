@@ -44,19 +44,23 @@ describe("sessions", () => {
 });
 
 describe("board", () => {
-	it("shows a card per session and the clash, escaped", async () => {
+	it("serves the page and the sessions with a face and the clash", async () => {
 		const a = parseSession("a", [ask("fix <b>one</b>"), edit("/repo/api.ts")], Date.now());
 		const b = parseSession("b", [ask("two"), edit("/repo/api.ts")], Date.now());
 		const sessions = [a, b].filter((s) => s !== undefined);
 		for (const s of sessions) s.edits = s.edits.map((e) => ({ ...e, at: Date.now() }));
-		const html = await (await createApp(() => sessions).request("/")).text();
-		expect(html.match(/class="card/g)).toHaveLength(2);
-		expect(html).toContain("both edited <code>/repo/api.ts</code>");
-		expect(html).toContain("fix &lt;b&gt;one&lt;/b&gt;");
+		const app = createApp(() => sessions);
+		expect(await (await app.request("/")).text()).toContain('<nav class="side" id="side">');
+		const json = await (await app.request("/api/sessions")).json();
+		expect(json.sessions).toHaveLength(2);
+		expect(json.sessions[0].face.shape).toBeString();
+		expect(json.sessions[0].feed.map((f: { who: string }) => f.who)).toEqual(["you", "agent"]);
+		expect(json.clashes).toEqual([{ file: "/repo/api.ts", sessions: ["a", "b"] }]);
 	});
 
-	it("says so when there are no sessions", async () => {
+	it("escapes text in the page script, not the server", async () => {
 		const html = await (await createApp(() => []).request("/")).text();
+		expect(html).toContain("const esc=");
 		expect(html).toContain("No Claude Code sessions in the last hour");
 	});
 });

@@ -21,7 +21,18 @@ export interface Session {
 	edits: { file: string; at: number }[];
 	updatedAt: number;
 	role: string;
+	/** The last few turns, oldest first, for the agent's channel. */
+	feed: FeedItem[];
 }
+
+export interface FeedItem {
+	at: number;
+	who: "you" | "agent";
+	text: string;
+	tools: string[];
+}
+
+const FEED_SIZE = 12;
 
 export interface Clash {
 	file: string;
@@ -58,7 +69,7 @@ function textOf(content: unknown): string {
 
 /** One transcript to a Session, or undefined when it has no conversation in it. */
 export function parseSession(id: string, lines: string[], updatedAt: number): Session | undefined {
-	const s: Session = { id, cwd: "", branch: "", title: "", said: "", doing: "", edits: [], updatedAt, role: "Code" };
+	const s: Session = { id, cwd: "", branch: "", title: "", said: "", doing: "", edits: [], updatedAt, role: "Code", feed: [] };
 	for (const line of lines) {
 		let e: {
 			type?: string;
@@ -80,18 +91,30 @@ export function parseSession(id: string, lines: string[], updatedAt: number): Se
 			const t = textOf(e.message?.content).trim();
 			if (t && !t.startsWith("<")) s.title = t.split("\n")[0].slice(0, 90);
 		}
+		if (e.type === "user" && !e.isMeta) {
+			const t = textOf(e.message?.content).trim();
+			if (t && !t.startsWith("<")) s.feed.push({ at, who: "you", text: t.slice(0, 400), tools: [] });
+		}
 		if (e.type === "assistant" && Array.isArray(e.message?.content)) {
 			const words = textOf(e.message.content).trim();
 			if (words) s.said = words.replace(/\s+/g, " ").slice(0, 160);
+			const last = s.feed[s.feed.length - 1];
+			const item =
+				last?.who === "agent" ? last : { at, who: "agent" as const, text: "", tools: [] as string[] };
+			if (item !== last) s.feed.push(item);
+			if (words) item.text = words.slice(0, 600);
+			item.at = at;
 			for (const c of e.message.content as { type?: string; name?: string; input?: Record<string, unknown> }[]) {
 				if (c?.type !== "tool_use" || !c.name) continue;
 				const file = String(c.input?.file_path ?? c.input?.notebook_path ?? "");
 				s.doing = file ? `${c.name} ${basename(file)}` : c.name.replace(/^mcp__[^_]+__/, "");
 				if (file && EDIT_TOOLS.has(c.name)) s.edits.push({ file, at });
+				if (item.tools.length < 6) item.tools.push(s.doing);
 			}
 		}
 	}
 	if (!s.title && !s.said) return undefined;
+	s.feed = s.feed.filter((f) => f.text || f.tools.length).slice(-FEED_SIZE);
 	s.role = guessRole(s.title, s.edits.map((x) => x.file));
 	return s;
 }
