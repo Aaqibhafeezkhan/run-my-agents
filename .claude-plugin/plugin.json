@@ -1,0 +1,11 @@
+{
+  "name": "run-my-agents",
+  "displayName": "Run My Agents",
+  "version": "0.1.0",
+  "description": "Run many Claude Code sessions on one repo. Before an agent edits a file another session just edited, it gets a warning, so agents stop overwriting each other.",
+  "author": { "name": "Flisk", "url": "https://flisk.sh" },
+  "homepage": "https://github.com/flisk-sh/run-my-agents",
+  "repository": "https://github.com/flisk-sh/run-my-agents",
+  "license": "MIT",
+  "keywords": ["parallel agents", "multiple sessions", "worktrees", "hooks"]
+}
