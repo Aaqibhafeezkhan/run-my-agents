@@ -9,7 +9,7 @@ export const SITE = {
 	description:
 		"A free Claude Code plugin: before an agent edits a file another session just changed, it gets a warning. No server, no account, no keys. Open source.",
 	/** Where the site lives online, ending in a slash. PUBLIC_URL overrides it at run time. */
-	url: "https://run-my-agents.flisk.si/",
+	url: "https://run-my-agents.onrender.com/",
 	repo: "https://github.com/flisk-sh/run-my-agents",
 	lang: "en",
 	locale: "en_US",

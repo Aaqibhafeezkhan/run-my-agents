@@ -1,8 +1,8 @@
-# Render Blueprint on the free plan: render.com → New → Blueprint → flisk-sh/flisk-template-launch. No database and
+# Render Blueprint on the free plan: render.com → New → Blueprint → flisk-sh/run-my-agents. No database and
 # no API keys to fill in. See DEPLOY.md.
 services:
   - type: web
-    name: flisk-template-launch
+    name: run-my-agents
     runtime: docker
     dockerfilePath: ./Dockerfile
     plan: free
@@ -16,6 +16,6 @@ services:
     envVars:
       # The address people use. Without a custom domain, your service's https://<name>.onrender.com/.
       - key: PUBLIC_URL
-        value: https://your-tool.example.com/
+        value: https://run-my-agents.onrender.com/
       - key: TRUST_PROXY
         value: last-forwarded
