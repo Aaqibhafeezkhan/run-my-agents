@@ -54,3 +54,15 @@ bash test/test.sh
 ## License
 
 MIT. Made by [Flisk](https://flisk.sh).
+
+## The board: see all your agents
+
+A local web page with every Claude Code session on your computer as a card: a face, what it is doing, the files it
+touched, and a warning when two sessions edited the same file. It reads `~/.claude/projects`, so there is nothing to
+sign in to, and it never leaves your computer.
+
+```
+cd services/app/board && bun install && bun start
+```
+
+Then open http://localhost:4100. It refreshes every 5 seconds. With [Flisk](https://github.com/flisk-sh/flisk), `flisk up` starts it as a local process.

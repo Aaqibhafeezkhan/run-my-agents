@@ -1,0 +1,15 @@
+{
+	"$schema": "https://flisk.sh/schema.service.json",
+	"schemaVersion": 1,
+	"name": "board",
+	"appName": "board",
+	"type": "backend",
+	"appType": "backend",
+	"stack": "app",
+	"framework": "hono",
+	"port": 4100,
+	"command": "bun run src/index.ts",
+	"healthCheckPath": "/health",
+	"dependsOn": [],
+	"featuresEnabled": []
+}
