@@ -7,9 +7,9 @@
 //   session B edits again  ──► allowed (a warning, not a lock)
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 
 const DIR = process.env.RUN_MY_AGENTS_DIR || join(homedir(), ".run-my-agents");
 const FILE = join(DIR, "claims.json");
@@ -42,6 +42,20 @@ function branchOf(dir) {
   }
 }
 
+/**
+ * The claim key: symlinks and letter case resolved by the disk. A file that does
+ * not exist yet keeps its name under its real parent folder.
+ */
+function canonical(path) {
+  try {
+    return realpathSync.native(path);
+  } catch {
+    const parent = dirname(path);
+    if (parent === path) return path;
+    return join(canonical(parent), basename(path));
+  }
+}
+
 function ago(ms) {
   const min = Math.round(ms / 60_000);
   return min < 1 ? "just now" : `${min} min ago`;
@@ -55,7 +69,7 @@ function main() {
   if (!session || !raw) return;
 
   const cwd = input.cwd || process.cwd();
-  const file = isAbsolute(raw) ? raw : resolve(cwd, raw);
+  const file = canonical(isAbsolute(raw) ? raw : resolve(cwd, raw));
   const now = Date.now();
 
   mkdirSync(DIR, { recursive: true });
