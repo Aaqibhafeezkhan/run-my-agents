@@ -39,6 +39,10 @@ export interface Session {
 	pinned: boolean;
 	/** True when you chose this session's type, instead of the board guessing it. */
 	roleSet?: boolean;
+	/** The model and effort chosen in the board for this agent. */
+	tune?: { model?: string; effort?: string };
+	/** The effort level the Claude desktop app has for this session. */
+	effort?: string;
 	/** Whether the Claude desktop app lists this session; undefined when that app's files aren't there. */
 	viaApp?: boolean;
 	/** The last few turns, oldest first, for the agent's channel. */
@@ -280,6 +284,7 @@ export function readAllSessions(now = Date.now()): Session[] {
 		s.pinned = isPinned(s.id, !!m?.pinned);
 		if (!m) continue;
 		if (m.title) s.title = m.title;
+		if (m.effort) s.effort = m.effort;
 		s.role = guessRole(s.title, s.edits.map((e) => e.file));
 	}
 	const codex = readCodexSessions(undefined, undefined, now);

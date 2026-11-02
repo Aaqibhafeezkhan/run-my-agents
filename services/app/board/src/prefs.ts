@@ -103,3 +103,55 @@ export function isPinned(id: string, inApp: boolean): boolean {
 	const p = readPins();
 	return (inApp || p.pinned.includes(id)) && !p.unpinned.includes(id);
 }
+
+/** The model and effort chosen in the board for an agent. Used for every message the board sends to it. */
+export const TUNE_MODELS = ["haiku", "sonnet", "opus"];
+export const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
+export interface Tune {
+	model?: string;
+	effort?: string;
+}
+const tuneFile = () => join(dir(), "tune.json");
+
+export function readTune(): Record<string, Tune> {
+	try {
+		const raw = JSON.parse(readFileSync(tuneFile(), "utf8")) as Record<string, Tune>;
+		const out: Record<string, Tune> = {};
+		for (const [id, t] of Object.entries(raw)) {
+			const clean: Tune = {};
+			if (t?.model && TUNE_MODELS.includes(t.model)) clean.model = t.model;
+			if (t?.effort && EFFORTS.includes(t.effort)) clean.effort = t.effort;
+			if (clean.model || clean.effort) out[id] = clean;
+		}
+		return out;
+	} catch {
+		return {};
+	}
+}
+
+/** Sets or, with an empty string, clears one or both settings. Anything not allowed is ignored. */
+export function setTune(id: string, patch: Tune): Tune {
+	const all = readTune();
+	const next: Tune = { ...all[id] };
+	if (patch.model !== undefined) {
+		if (patch.model && TUNE_MODELS.includes(patch.model)) next.model = patch.model;
+		else delete next.model;
+	}
+	if (patch.effort !== undefined) {
+		if (patch.effort && EFFORTS.includes(patch.effort)) next.effort = patch.effort;
+		else delete next.effort;
+	}
+	if (next.model || next.effort) all[id] = next;
+	else delete all[id];
+	mkdirSync(dirname(tuneFile()), { recursive: true });
+	const tmp = `${tuneFile()}.${process.pid}.tmp`;
+	writeFileSync(tmp, JSON.stringify(all, null, 2));
+	renameSync(tmp, tuneFile());
+	return next;
+}
+
+export function applyTune(sessions: Session[]): Session[] {
+	const tune = readTune();
+	for (const s of sessions) if (tune[s.id]) s.tune = tune[s.id];
+	return sessions;
+}

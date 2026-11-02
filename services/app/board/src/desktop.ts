@@ -14,6 +14,7 @@ export interface DesktopMeta {
 	title: string;
 	pinned: boolean;
 	archived: boolean;
+	effort: string;
 }
 
 function defaultRoot(): string {
@@ -25,7 +26,7 @@ function defaultRoot(): string {
 }
 
 /** One small record per session file, kept until the file changes, because there are hundreds and the board polls. */
-const cache = new Map<string, { mtime: number; rec: { cli: string; local: string; title: string; archived: boolean } | null }>();
+const cache = new Map<string, { mtime: number; rec: { cli: string; local: string; title: string; archived: boolean; effort: string } | null }>();
 
 function list(dir: string): string[] {
 	try {
@@ -63,12 +64,12 @@ export function readDesktopMeta(root = defaultRoot()): Map<string, DesktopMeta> 
 					try {
 						const j = JSON.parse(readFileSync(path, "utf8"));
 						if (typeof j.cliSessionId === "string")
-							rec = { cli: j.cliSessionId, local: String(j.sessionId ?? ""), title: String(j.title ?? ""), archived: j.isArchived === true };
+							rec = { cli: j.cliSessionId, local: String(j.sessionId ?? ""), title: String(j.title ?? ""), archived: j.isArchived === true, effort: typeof j.effort === "string" ? j.effort : "" };
 					} catch {}
 					hit = { mtime, rec };
 					cache.set(path, hit);
 				}
-				if (hit.rec) out.set(hit.rec.cli, { title: hit.rec.title, pinned: starred.has(hit.rec.local), archived: hit.rec.archived });
+				if (hit.rec) out.set(hit.rec.cli, { title: hit.rec.title, pinned: starred.has(hit.rec.local), archived: hit.rec.archived, effort: hit.rec.effort });
 			}
 	return out;
 }

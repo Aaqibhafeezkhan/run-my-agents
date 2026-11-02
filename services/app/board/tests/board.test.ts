@@ -213,8 +213,8 @@ describe("claude desktop pins and names", () => {
 		writeFileSync(join(dir, "local_b.json"), JSON.stringify({ sessionId: "local_b", cliSessionId: "cli-b", title: "Ghostfolio", isArchived: true }));
 		writeFileSync(join(dir, "local_c.json"), "not json");
 		const meta = readDesktopMeta(root);
-		expect(meta.get("cli-a")).toEqual({ title: "Flisk 5-second YouTube Short", pinned: true, archived: false });
-		expect(meta.get("cli-b")).toEqual({ title: "Ghostfolio", pinned: false, archived: true });
+		expect(meta.get("cli-a")).toEqual({ title: "Flisk 5-second YouTube Short", pinned: true, archived: false, effort: "" });
+		expect(meta.get("cli-b")).toEqual({ title: "Ghostfolio", pinned: false, archived: true, effort: "" });
 		expect(meta.size).toBe(2);
 	});
 
@@ -428,13 +428,83 @@ describe("pins and open-in", () => {
 	});
 });
 
-describe("right-click menu", () => {
-	it("replaces the browser's menu on agents, with pin and unpin, type, folder and copy actions", async () => {
+describe("right-click gauges panel and animated controls", () => {
+	it("replaces the browser's menu on agents with a gauges panel, and keeps native menus in text fields", async () => {
 		const { PAGE } = await import("../src/page");
 		const js = PAGE.split("<script>")[1].split("</script>")[0];
 		expect(() => new Function(js)).not.toThrow();
-		for (const part of ['addEventListener("contextmenu"', "e.preventDefault()", "function menuItems(", '"Unpin":"Pin to top"', "Open folder in Finder", "Copy resume command", 'data-act="pin"', ".cmenu{"]) expect(PAGE).toContain(part);
-		// text fields keep the browser's own menu, so copy and paste still work there
-		expect(PAGE).toContain('tg==="TEXTAREA"');
+		for (const part of ['addEventListener("contextmenu"', "e.preventDefault()", "function gaugePanel(", "function dialHtml(", "function ledsHtml(", 'data-sw="pin"', 'data-tile="', ".cmenu.gp{", "function showPanel(", 'tg==="TEXTAREA"']) expect(PAGE).toContain(part);
+	});
+
+	it("uses no native dropdowns, checkboxes, number boxes or datalists anywhere", async () => {
+		const { PAGE } = await import("../src/page");
+		expect(PAGE).not.toMatch(/<select|type="number"|type="checkbox"|<datalist|<option/);
+	});
+
+	it("has an animated, hoverable style for every control it draws", async () => {
+		const { PAGE } = await import("../src/page");
+		for (const hover of [".ml:hover", ".led:hover", ".swr:hover", ".tl:hover", ".cb:hover", ".fc:hover", ".lbtn:hover", ".mdot:hover", ".gc:hover", ".sg:hover", ".rc:hover", ".btn:hover"]) expect(PAGE).toContain(hover);
+		for (const motion of ["@keyframes gpop", "@keyframes dpop", "@keyframes sway", "@keyframes ledp", "@keyframes glowg", "@keyframes tflow"]) expect(PAGE).toContain(motion);
+	});
+});
+
+describe("model and effort", () => {
+	const J = { "content-type": "application/json" };
+	const post = (app: ReturnType<typeof createApp>, path: string, body: object) =>
+		app.request(path, { method: "POST", headers: J, body: JSON.stringify(body) });
+
+	it("sets a model and an effort for an agent, and uses them when the board sends a message", async () => {
+		const { mkdtempSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		process.env.RUN_MY_AGENTS_DIR = mkdtempSync(join(tmpdir(), "rma-tune-"));
+		const { applyTune, readTune } = await import("../src/prefs");
+		const fresh = () => [parseSession("t1", [ask("hi")], now)].filter((s) => s !== undefined);
+		const app = createApp(() => applyTune(fresh()));
+		expect((await post(app, "/api/tune", { id: "t1", model: "haiku" })).status).toBe(200);
+		await post(app, "/api/tune", { id: "t1", effort: "low" });
+		const s = (await (await app.request("/api/sessions")).json()).sessions[0];
+		expect(s.tune).toEqual({ model: "haiku", effort: "low" });
+		const { sendToSession } = await import("../src/index");
+		let args: string[] = [];
+		const fake = ((_: string, a: string[]) => {
+			args = a;
+			const child = new (require("node:events").EventEmitter)();
+			child.stdin = { end: () => setTimeout(() => child.emit("close"), 0) };
+			return child;
+		}) as never;
+		const live = applyTune(fresh())[0];
+		await sendToSession(live, "go", fake);
+		expect(args).toEqual(["-p", "--resume", "t1", "--permission-mode", "acceptEdits", "--model", "haiku", "--effort", "low"]);
+		// jumping up and down the ladder is allowed here; "" clears
+		await post(app, "/api/tune", { id: "t1", model: "opus" });
+		expect(readTune().t1.model).toBe("opus");
+		await post(app, "/api/tune", { id: "t1", model: "", effort: "" });
+		expect(readTune()).toEqual({});
+	});
+
+	it("refuses unknown models, unknown levels, Codex agents and other sites", async () => {
+		const cx = { id: "c1", agent: "codex", title: "x", cwd: "/", updatedAt: Date.now(), role: "Code" } as never;
+		const s = parseSession("t2", [ask("hi")], now);
+		const app = createApp(() => (s ? [s, cx] : [cx]));
+		expect((await post(app, "/api/tune", { id: "t2", model: "gpt-9" })).status).toBe(400);
+		expect((await post(app, "/api/tune", { id: "t2", effort: "ludicrous" })).status).toBe(400);
+		expect((await post(app, "/api/tune", { id: "t2" })).status).toBe(400);
+		expect((await post(app, "/api/tune", { id: "c1", model: "opus" })).status).toBe(400);
+		expect((await post(app, "/api/tune", { id: "nope", model: "opus" })).status).toBe(404);
+		expect((await app.request("/api/tune", { method: "POST", body: "id=t2" })).status).toBe(403);
+	});
+
+	it("starts a Claude session with the chosen effort", async () => {
+		const { startNewSession } = await import("../src/index");
+		let args: string[] = [];
+		const fake = ((_: string, a: string[]) => {
+			args = a;
+			const child = new (require("node:events").EventEmitter)();
+			child.stdin = { end: () => setTimeout(() => child.emit("close"), 0) };
+			return child;
+		}) as never;
+		await startNewSession({ agent: "claude", cwd: "/tmp", text: "x", id: "i", model: "sonnet", effort: "high" }, fake);
+		expect(args).toEqual(["-p", "--session-id", "i", "--permission-mode", "acceptEdits", "--model", "sonnet", "--effort", "high"]);
 	});
 });

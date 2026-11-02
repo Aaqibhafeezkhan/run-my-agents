@@ -131,12 +131,81 @@ body{background:#06060a;color:var(--text);font:13px/1.5 var(--body);-webkit-font
 .mi em{font:11px var(--mono);color:var(--muted);font-style:normal}.mi.dng{color:#fb7185}
 .msep{height:1px;background:var(--line);margin:var(--p3) 6px}
 .msub{display:none;flex-wrap:wrap;gap:6px;padding:4px 8px 8px}.msub.on{display:flex}
+.gx{--ro:20px;--ri:calc(var(--ro) - var(--p1));--rc:calc(var(--ri) - 6px)}
+.gsv{display:block;width:100%;height:auto;overflow:visible}
+.gc{border-radius:var(--ri);background:radial-gradient(120% 90% at 50% 0%,#262633,#15151d);box-shadow:inset 0 1px 0 rgba(255,255,255,.07),inset 0 0 0 1px var(--line);padding:8px 6px;text-align:center;min-width:0;transition:transform .25s,box-shadow .25s}
+.gc:hover{transform:translateY(-2px);box-shadow:inset 0 1px 0 rgba(255,255,255,.1),inset 0 0 0 1px rgba(110,231,183,.28),0 10px 24px -12px rgba(56,189,248,.45)}
+.gc.off{opacity:.45}
+.gcap{font:600 9px var(--mono);letter-spacing:.06em;color:var(--muted);margin-top:2px;text-transform:uppercase}.gcap b{display:block;font-size:12px;color:var(--text);letter-spacing:0}
+.arc{stroke-dashoffset:calc(100 - var(--p));transition:stroke-dashoffset 1.1s cubic-bezier(.2,.8,.2,1)}
+.gx:not(.live) .arc{--p:0}
+.needle{--cur:var(--a);transform-origin:60px 62px;transform:rotate(var(--cur));transition:transform 1s cubic-bezier(.3,1.5,.5,1);filter:drop-shadow(0 0 3px rgba(255,255,255,.55))}
+.gx:not(.live) .needle{--cur:-90deg}
+.needle line{transform-origin:60px 62px}.needle.idle line{animation:sway 3.2s ease-in-out infinite}
+@keyframes sway{50%{transform:rotate(1.8deg)}}
+.needle.hot{animation:jit .18s linear infinite}@keyframes jit{50%{translate:.8px -.5px}}
+.mdot{cursor:pointer;transform-box:fill-box;transform-origin:center;transition:transform .2s,filter .2s}.mdot:hover{transform:scale(1.6);filter:brightness(1.5)}
+.mls{display:flex;justify-content:space-between;gap:4px;margin-top:4px}
+.ml{flex:1;font:600 9px var(--mono);letter-spacing:.04em;padding:4px 0;border-radius:var(--rc);cursor:pointer;color:var(--muted);background:#12121a;transition:color .2s,background .2s,transform .2s,box-shadow .2s}.ml:hover{color:var(--text);transform:translateY(-2px);background:#1d1d29}
+.ml.on{color:#06060a;background:var(--c);box-shadow:0 0 14px -2px var(--c);animation:glowp 2.2s ease-in-out infinite}@keyframes glowp{50%{box-shadow:0 0 20px 0 var(--c)}}
+.leds{display:flex;gap:5px;align-items:flex-end;justify-content:center;height:64px;padding-top:6px}
+.led{width:14px;border-radius:5px;background:#33334a;box-shadow:inset 0 1px 0 rgba(255,255,255,.08);cursor:pointer;transition:background .3s,box-shadow .3s,transform .2s;transition-delay:calc(var(--i)*70ms),calc(var(--i)*70ms),0s}
+.led.on{background:var(--c);box-shadow:0 0 10px -1px var(--c);animation:ledp 2.4s ease-in-out infinite;animation-delay:calc(var(--i)*.15s)}@keyframes ledp{50%{filter:brightness(1.35)}}
+.led:hover{transform:translateY(-3px) scaleY(1.06);filter:brightness(1.4)}
+.gx:not(.live) .led.on{background:#33334a;box-shadow:none}
+.elab{display:flex;justify-content:center;gap:5px;font:600 8px var(--mono);color:var(--muted);margin-top:3px}.elab span{width:14px;text-align:center;cursor:pointer;transition:color .2s,transform .2s}.elab span:hover{color:var(--text);transform:translateY(-1px)}
+.autob{display:inline-block;margin-top:4px;font:600 8px var(--mono);letter-spacing:.06em;padding:2px 8px;border-radius:999px;background:#12121a;color:var(--muted);cursor:pointer;transition:background .2s,color .2s,transform .2s}.autob:hover{background:#23232e;color:var(--text);transform:translateY(-1px)}
+.swr{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 9px;border-radius:var(--rc,8px);cursor:pointer;font-size:12px;transition:background .2s,transform .2s}.swr:hover{background:#1f1f2a;transform:translateX(2px)}
+.swt{position:relative;flex:none;width:40px;height:22px;border-radius:999px;background:linear-gradient(#0d0d13,#1a1a24);box-shadow:inset 0 2px 4px rgba(0,0,0,.7),0 1px 0 rgba(255,255,255,.06);transition:background .3s,box-shadow .3s}
+.swt b{position:absolute;left:2px;top:2px;width:18px;height:18px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fff,#9aa0b4 55%,#5b6075);box-shadow:0 2px 4px rgba(0,0,0,.6);transition:transform .35s cubic-bezier(.3,1.6,.5,1)}
+.swr:hover .swt b{filter:brightness(1.15)}
+.swt.on{background:linear-gradient(#16a34a,#22c55e);box-shadow:inset 0 2px 4px rgba(0,0,0,.35),0 0 14px -2px #22c55e;animation:glowg 2.4s ease-in-out infinite}.swt.on b{transform:translateX(18px)}
+@keyframes glowg{50%{box-shadow:inset 0 2px 4px rgba(0,0,0,.35),0 0 20px 0 #22c55e}}
+.swg,.gcard{border-radius:var(--ri);background:#15151d;box-shadow:inset 0 0 0 1px var(--line);padding:4px}
+.gt2{display:flex;flex-wrap:wrap;gap:5px;padding:2px 2px 4px}
+.cmenu.gp{--ro:20px;width:min(348px,94vw);min-width:0;max-width:none;padding:var(--p1);border-radius:var(--ro);background:linear-gradient(160deg,#1d1d28,#11111a);box-shadow:inset 0 1px 0 rgba(255,255,255,.08),inset 0 0 0 1px var(--line),0 26px 80px rgba(0,0,0,.75),0 0 60px -20px rgba(56,189,248,.28);display:flex;flex-direction:column;gap:6px;animation:gpop .42s cubic-bezier(.2,1.25,.4,1) both}
+@keyframes gpop{from{opacity:0;transform:scale(.86) translateY(-8px)}}
+.gp>*{animation:in .4s ease both}.gp>*:nth-child(2){animation-delay:.05s}.gp>*:nth-child(3){animation-delay:.1s}.gp>*:nth-child(4){animation-delay:.15s}.gp>*:nth-child(5){animation-delay:.2s}.gp>*:nth-child(6){animation-delay:.25s}.gp>*:nth-child(7){animation-delay:.3s}
+.gh{display:flex;gap:10px;align-items:center;padding:6px 8px;border-radius:var(--ri);background:linear-gradient(90deg,rgba(255,255,255,.06),transparent);transition:background .3s}.gh:hover{background:linear-gradient(90deg,rgba(110,231,183,.14),transparent)}
+.gh b{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:240px}.gh .tags{display:flex;gap:5px;align-items:center;margin-top:3px;flex-wrap:wrap}
+.gg2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.tl{display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 2px;border-radius:var(--ri);background:linear-gradient(#232330,#17171f);box-shadow:inset 0 1px 0 rgba(255,255,255,.07),inset 0 0 0 1px var(--line),0 3px 0 #0b0b10;cursor:pointer;font:600 9px var(--mono);color:var(--muted);transition:transform .15s,box-shadow .15s,color .2s}
+.tl:hover{color:var(--mint);transform:translateY(-2px)}.tl:active{transform:translateY(2px);box-shadow:inset 0 1px 0 rgba(255,255,255,.07),inset 0 0 0 1px var(--line),0 0 0 #0b0b10}.tl svg{width:20px;height:20px;transition:transform .3s}.tl:hover svg{transform:scale(1.2) rotate(-6deg)}
+.cpy{display:flex;gap:6px}.cb{flex:1;text-align:center;padding:7px 0;border-radius:var(--rc);background:#15151d;box-shadow:inset 0 0 0 1px var(--line);font:600 10px var(--mono);color:var(--muted);cursor:pointer;transition:background .2s,color .2s,transform .2s}.cb:hover{background:#23232e;color:var(--text);transform:translateY(-2px)}
+.dcard{animation:dpop .45s cubic-bezier(.2,1.25,.4,1) both;--ro:var(--r-app)}@keyframes dpop{from{opacity:0;transform:scale(.88) translateY(14px)}}
+.dbg{animation:fade .3s ease both}@keyframes fade{from{opacity:0}}
+.dhd{display:flex;align-items:baseline;gap:10px}.dsub{font:11px var(--mono);color:var(--muted)}
+.tbox,.fbox{position:relative;border-radius:var(--r-row);padding:1px;background:linear-gradient(120deg,#2a2a40,#1f3a2c,#2a2a40);background-size:300% 100%;animation:tflow 8s linear infinite;transition:box-shadow .3s}
+.tbox:focus-within,.fbox:focus-within{animation-duration:2.5s;box-shadow:0 0 26px -6px rgba(110,231,183,.55)}
+@keyframes tflow{to{background-position:-300% 0}}
+.dcard .tbox #ntext{border:0;border-radius:calc(var(--r-row) - 1px);background:#0f0f15}
+.dcard .fbox input.f{border:0;border-radius:calc(var(--r-row) - 1px);background:#0f0f15}
+.fch{display:flex;flex-wrap:wrap;gap:6px}
+.fc{display:inline-flex;align-items:center;padding:4px 10px;border-radius:999px;background:#0f0f15;font:11px var(--mono);color:var(--muted);cursor:pointer;border:1px solid transparent;transition:background .2s,color .2s,transform .2s,border-color .2s,box-shadow .2s}
+.fc:hover{background:#23232e;color:var(--text);transform:translateY(-2px)}.fc.on{border-color:var(--green);color:var(--text);background:rgba(34,197,94,.12);box-shadow:0 0 14px -4px var(--green)}
+.nrow{display:grid;grid-template-columns:1.7fr 1fr;gap:8px}
+.sg.on{animation:glowg2 2.4s ease-in-out infinite}@keyframes glowg2{50%{box-shadow:0 0 16px -3px var(--green)}}
+.btn{position:relative;overflow:hidden}
+.btn.new::after,.btn.go::after{content:"";position:absolute;inset:0;background:linear-gradient(100deg,transparent 30%,rgba(255,255,255,.45) 50%,transparent 70%);transform:translateX(-120%);transition:transform .6s;pointer-events:none}
+.btn.new:hover::after,.btn.go:hover::after{transform:translateX(120%)}
+.panel.lp{animation:none}
+.lp .lnum{display:flex;align-items:center;justify-content:center;gap:12px}
+.lbtn{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:linear-gradient(#232330,#17171f);box-shadow:inset 0 1px 0 rgba(255,255,255,.08),inset 0 0 0 1px var(--line),0 3px 0 #0b0b10;cursor:pointer;font:600 16px var(--mono);user-select:none;transition:transform .15s,box-shadow .15s,color .2s}
+.lbtn:hover{transform:translateY(-2px);color:var(--mint)}.lbtn:active{transform:translateY(2px);box-shadow:inset 0 0 0 1px var(--line),0 0 0 #0b0b10}
+#limv{font:700 24px var(--mono);min-width:76px;text-align:center;text-shadow:0 0 14px rgba(110,231,183,.4)}#limv.bump{animation:bump .3s ease}@keyframes bump{40%{transform:scale(1.25);color:var(--mint)}}
+.lchips{justify-content:center}
+.dcard .chips .rc:nth-child(1){animation-delay:0.04s}.dcard .chips .rc:nth-child(2){animation-delay:0.07s}.dcard .chips .rc:nth-child(3){animation-delay:0.11s}.dcard .chips .rc:nth-child(4){animation-delay:0.14s}.dcard .chips .rc:nth-child(5){animation-delay:0.18s}.dcard .chips .rc:nth-child(6){animation-delay:0.21s}.dcard .chips .rc:nth-child(7){animation-delay:0.25s}.dcard .chips .rc:nth-child(8){animation-delay:0.28s}.dcard .chips .rc:nth-child(9){animation-delay:0.32s}.dcard .chips .rc:nth-child(10){animation-delay:0.35s}.dcard .chips .rc:nth-child(11){animation-delay:0.39s}.dcard .chips .rc:nth-child(12){animation-delay:0.42s}
+.dcard .chips .rc{animation:in .4s ease both}
 .empty{color:var(--muted);text-align:center;margin:auto;padding:40px}
 @media (max-width:720px){.app{grid-template-columns:1fr}.side{max-height:40vh}}
 </style></head><body>
 <svg width="0" height="0" style="position:absolute"><defs>
 <radialGradient id="sh" cx="35%" cy="28%" r="75%"><stop offset="0" stop-color="#fff" stop-opacity=".55"/><stop offset=".45" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".45"/></radialGradient>
 <radialGradient id="eye" cx="40%" cy="35%" r="70%"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#cfd3e0"/></radialGradient>
+<linearGradient id="gz" gradientUnits="userSpaceOnUse" x1="10" y1="0" x2="110" y2="0"><stop offset="0" stop-color="#22c55e"/><stop offset=".55" stop-color="#6ee7a0"/><stop offset=".72" stop-color="#f59e0b"/><stop offset="1" stop-color="#f43f5e"/></linearGradient>
+<linearGradient id="gm" gradientUnits="userSpaceOnUse" x1="10" y1="0" x2="110" y2="0"><stop offset="0" stop-color="#a1a1b3"/><stop offset=".3" stop-color="#6ee7a0"/><stop offset=".65" stop-color="#38bdf8"/><stop offset="1" stop-color="#fbbf24"/></linearGradient>
+<radialGradient id="hub" cx="35%" cy="30%" r="75%"><stop offset="0" stop-color="#fff"/><stop offset=".5" stop-color="#8a90a6"/><stop offset="1" stop-color="#3a3f52"/></radialGradient>
 </defs></svg>
 <div class="app"><nav class="side" id="side"></nav><main class="main"><div class="hd" id="hd"></div><div id="meter"></div><div id="skills"></div><div id="roles"></div><div id="warns"></div><div class="feed" id="feed"></div><div class="box" id="box"></div></main></div>
 <div class="toast" id="toast"></div>
@@ -161,6 +230,7 @@ let BUILD0="",composerFor="",S=[],C=[],L={sessionTokens:0,autoDowngrade:false},s
 const $=id=>document.getElementById(id);
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]);
 const ago=ms=>{const s=Math.round(ms/1e3);return s<60?s+"s":s<3600?Math.round(s/60)+" min":Math.round(s/3600)+" h"};
+const limLabel=n=>n>=1e6?(n%1e5===0?(n/1e6).toFixed(1):(n/1e6).toFixed(2))+"M":n>=1e3?Math.round(n/1e3)+"k":String(n);
 const kt=n=>n>=1e6?(n/1e6).toFixed(1)+"M":n>=1e3?Math.round(n/1e3)+"k":String(n);
 const post=(u,b)=>fetch(u,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(b)}).then(r=>r.json());
 const TIER={opus:"#fbbf24",sonnet:"#38bdf8",haiku:"#6ee7a0"};
@@ -181,7 +251,7 @@ function render(){
  if(!S.length){$("side").innerHTML='<div class="proj">Run My Agents</div><div class="btns"><button class="btn new" data-act="newopen">+ New session</button></div>';$("hd").innerHTML="";$("warns").innerHTML="";$("feed").innerHTML='<p class="empty">No Claude Code sessions in the last hour. Start one and it shows up here.</p>';$("box").innerHTML="";return}
  if(!S.find(s=>s.id===sel))sel=S[0].id;
  const groups=[["Pinned",s=>s.pinned],["Working",s=>!s.pinned&&s.viaApp!==false&&state(s)!=="z"],["Idle",s=>!s.pinned&&s.viaApp!==false&&state(s)==="z"],["Not in the Claude app",s=>!s.pinned&&s.viaApp===false]];
- $("side").innerHTML='<div class="proj" data-act="proj"><span>Run My Agents</span><small>'+S.length+" agents</small></div>"+'<div class="btns"><button class="btn new" data-act="newopen">+ New session</button><button class="btn" data-act="limits">'+(L.sessionTokens?"Limit "+kt(L.sessionTokens)+" per session":"Set token limit")+"</button></div>"+(showLimits?'<div class="panel"><div>Tokens per session (0 = no limit)</div><input type="number" id="lim" min="0" step="50000" value="'+L.sessionTokens+'"><label><input type="checkbox" id="auto" '+(L.autoDowngrade?"checked":"")+'> At the limit, move new sessions to a cheaper model</label><div style="color:var(--muted);font-size:11px">Models only move down: Opus, then Sonnet, then Haiku. Never up.</div><button class="btn go" data-act="save">Save</button></div>':"")+groups.map(([g,f])=>{const xs=S.filter(f);if(!xs.length)return"";return '<div class="grp" data-grp="'+g+'">'+(fold[g]?"▸":"▾")+" "+g+" · "+xs.length+"</div>"+(fold[g]?"":xs.map(s=>{const unread=(s.feed.length-(seen[s.id]??s.feed.length));return '<div class="it '+(s.id===sel?"sel ":"")+(state(s)==="z"?"idle":"")+'" data-sel="'+s.id+'">'+face(s,36)+'<div class="t"><b class="nm">'+esc(s.title||"Untitled session")+'</b><span class="meta"><span class="rl" style="color:'+s.face.color+';background:color-mix(in srgb,'+s.face.color+' 18%,transparent)">'+esc(s.role)+'</span><span class="ag '+s.agent+'">'+(s.agent==="codex"?"CODEX":"CLAUDE")+"</span>"+mtag(s)+ago(Date.now()-s.updatedAt)+"</span><small>"+[esc(s.doing||""),kt(s.tokens.used)+" tok"+(L.sessionTokens?" / "+kt(L.sessionTokens):"")].filter(Boolean).join(" · ")+"</small></div>"+(unread>0&&s.id!==sel?'<span class="badge">'+unread+"</span>":"")+"</div>"}).join(""))}).join("");
+ $("side").innerHTML='<div class="proj" data-act="proj"><span>Run My Agents</span><small>'+S.length+" agents</small></div>"+'<div class="btns"><button class="btn new" data-act="newopen">+ New session</button><button class="btn" data-act="limits">'+(L.sessionTokens?"Limit "+kt(L.sessionTokens)+" per session":"Set token limit")+"</button></div>"+(showLimits?limPanel():"")+groups.map(([g,f])=>{const xs=S.filter(f);if(!xs.length)return"";return '<div class="grp" data-grp="'+g+'">'+(fold[g]?"▸":"▾")+" "+g+" · "+xs.length+"</div>"+(fold[g]?"":xs.map(s=>{const unread=(s.feed.length-(seen[s.id]??s.feed.length));return '<div class="it '+(s.id===sel?"sel ":"")+(state(s)==="z"?"idle":"")+'" data-sel="'+s.id+'">'+face(s,36)+'<div class="t"><b class="nm">'+esc(s.title||"Untitled session")+'</b><span class="meta"><span class="rl" style="color:'+s.face.color+';background:color-mix(in srgb,'+s.face.color+' 18%,transparent)">'+esc(s.role)+'</span><span class="ag '+s.agent+'">'+(s.agent==="codex"?"CODEX":"CLAUDE")+"</span>"+mtag(s)+ago(Date.now()-s.updatedAt)+"</span><small>"+[esc(s.doing||""),kt(s.tokens.used)+" tok"+(L.sessionTokens?" / "+kt(L.sessionTokens):"")].filter(Boolean).join(" · ")+"</small></div>"+(unread>0&&s.id!==sel?'<span class="badge">'+unread+"</span>":"")+"</div>"}).join(""))}).join("");
  const s=S.find(x=>x.id===sel);seen[s.id]=s.feed.length;
  $("hd").innerHTML=face(s,30)+"<div>"+esc(s.role)+" · "+esc(s.title||"Untitled")+"<br><small>"+esc(s.branch||"")+" · "+esc(s.cwd.split("/").pop()||"")+" · session "+s.id.slice(0,8)+'</small></div><div class="hb"><span data-act="pin">'+(s.pinned?"Unpin":"Pin")+'</span><span data-act="roles">Type: '+esc(s.role)+'</span><span data-act="skills">Skills</span><span data-act="files">Files</span><span data-act="mute">'+(muted[s.id]?"Unmute":"Mute")+"</span></div>";
  const over=L.sessionTokens&&s.tokens.used>=L.sessionTokens,pct=L.sessionTokens?Math.min(100,s.tokens.used/L.sessionTokens*100):0;
@@ -211,8 +281,8 @@ document.addEventListener("click",e=>{
   else if(k==="files"){const fs=[...new Set(s.edits.map(x=>x.file.split("/").pop()))];toast(fs.length?s.role+" edited "+fs.slice(-5).join(", "):s.role+" hasn't edited files")}
   else if(k==="tool"){navigator.clipboard?.writeText(a.textContent).catch(()=>{});toast("Copied "+a.textContent)}
   else if(k==="proj"){last="";load();toast("Refreshed")}
-  else if(k==="limits"){showLimits=!showLimits;render()}
-  else if(k==="save"){post("api/limits",{sessionTokens:Number($("lim").value),autoDowngrade:$("auto").checked}).then(l=>{L=l;showLimits=false;last="";render();toast(l.sessionTokens?"Limit set: "+kt(l.sessionTokens)+" per session":"No token limit")})}
+  else if(k==="limits"){showLimits=!showLimits;if(showLimits)LIM={tokens:L.sessionTokens,auto:L.autoDowngrade};render()}
+  else if(k==="save"){post("api/limits",{sessionTokens:LIM.tokens,autoDowngrade:LIM.auto}).then(l=>{L=l;showLimits=false;last="";render();toast(l.sessionTokens?"Limit set: "+kt(l.sessionTokens)+" per session":"No token limit")})}
   else if(k==="resume"){navigator.clipboard?.writeText("cd "+s.cwd+" && "+(s.agent==="codex"?"codex resume ":"claude --resume ")+s.id).catch(()=>{});toast("Copied resume command")}
   else if(k==="send"){sendMsg()}
   else if(k==="pin"){pinSession(s.id,!s.pinned)}
@@ -226,6 +296,9 @@ document.addEventListener("click",e=>{
   else if(k==="skills"){showSkills=!showSkills;render()}
   else if(k==="down"){post("api/downgrade",{id:s.id}).then(r=>{if(r.error){toast(r.error);return}navigator.clipboard?.writeText("/model "+r.model).catch(()=>{});toast("New sessions use "+r.model+". Copied /model "+r.model+" for this one")})}
   return}
+ const lb=e.target.closest("[data-lim]");if(lb){LIM.tokens=Math.max(0,LIM.tokens+Number(lb.dataset.lim));renderLim();return}
+ const ls=e.target.closest("[data-limset]");if(ls){LIM.tokens=Number(ls.dataset.limset);renderLim();return}
+ const lw=e.target.closest("#lp [data-sw]");if(lw){LIM.auto=!LIM.auto;renderLim();return}
  const sk=e.target.closest("[data-skill]");if(sk){navigator.clipboard?.writeText("/"+sk.dataset.skill).catch(()=>{});toast("Copied /"+sk.dataset.skill);return}
  const m=e.target.closest("[data-msg]");if(m){m.classList.toggle("open");return}
 
@@ -242,30 +315,51 @@ async function sendMsg(){const t=$("msg"),s=S.find(x=>x.id===sel);if(!t||!s)retu
  const r=await post("api/send",{id:s.id,text}).catch(()=>({error:"The board is not answering."}));if(r.error){toast(r.error);return}
  fx("sent",0,0,text.replace(/\\s+/g," "));
  t.value="";saveDraft(s.id,"");t.style.height="28px";follow();s.sending=true;const sb=document.querySelector(".send");if(sb){sb.disabled=true;sb.textContent="Answering…"}toast("Sent to "+s.role);last=""}
-let OPT=null,ND=null,wantSel="",showRoles=false,dt=0;
+let OPT=null,ND=null,wantSel="",showRoles=false,dt=0,LIM={tokens:0,auto:false};
 const dk=id=>"rma-draft-"+id;
 function saveDraft(id,v){try{if(v)localStorage.setItem(dk(id),v);else localStorage.removeItem(dk(id))}catch(e){}}
 function loadDraft(id){try{return localStorage.getItem(dk(id))||""}catch(e){return""}}
 function restoreDraft(id){const t=$("msg");if(!t)return;t.value=loadDraft(id);if(t.value){t.style.height="28px";t.style.height=Math.min(160,Math.max(28,t.scrollHeight))+"px";follow()}}
 function mini(f,n){return '<svg width="'+n+'" height="'+n+'" viewBox="0 0 64 64">'+SH[f.shape](f.color)+EY[f.eyes]+"</svg>"}
+const EFFORTS=["low","medium","high","xhigh","max"],ECOL=["#22c55e","#6ee7a0","#fbbf24","#fb923c","#f43f5e"],ELAB={low:"L",medium:"M",high:"H",xhigh:"X",max:"MAX"};
+const MODELS=[["","AUTO",-72,"#a1a1b3"],["haiku","HAIKU",-24,"#6ee7a0"],["sonnet","SONNET",24,"#38bdf8"],["opus","OPUS",72,"#fbbf24"]];
+function polar(a,r){const t=a*Math.PI/180;return[60+r*Math.sin(t),62-r*Math.cos(t)]}
+function dialHtml(cur){const d=MODELS.find(m=>m[0]===cur)||MODELS[0];let ticks="";
+ for(let i=0;i<=12;i++){const a=-90+15*i,p1=polar(a,39),p2=polar(a,i%3?37:34);ticks+='<line x1="'+p1[0].toFixed(1)+'" y1="'+p1[1].toFixed(1)+'" x2="'+p2[0].toFixed(1)+'" y2="'+p2[1].toFixed(1)+'" stroke="#3a3a48" stroke-width="1"/>'}
+ const dots=MODELS.map(([k,l,a,c])=>{const p=polar(a,46);return '<circle class="mdot" data-model="'+k+'" data-k="'+k+'" data-c="'+c+'" cx="'+p[0].toFixed(1)+'" cy="'+p[1].toFixed(1)+'" r="5" fill="'+(k===cur?c:"#2c2c3a")+'"/>'}).join("");
+ return '<svg viewBox="0 0 120 70" class="gsv"><path d="M10 62A50 50 0 0 1 110 62" fill="none" stroke="url(#gm)" stroke-width="5" stroke-linecap="round" opacity=".5"/>'+ticks+dots+'<g class="needle idle" data-needle="1" style="--a:'+d[2]+'deg"><line x1="60" y1="62" x2="60" y2="25" stroke="#fff" stroke-width="2" stroke-linecap="round"/></g><circle cx="60" cy="62" r="6" fill="url(#hub)"/></svg><div class="mls">'+MODELS.map(([k,l,a,c])=>'<span class="ml'+(k===cur?" on":"")+'" data-model="'+k+'" style="--c:'+c+'">'+l+"</span>").join("")+"</div>"}
+function updateDial(root,m){const d=MODELS.find(x=>x[0]===m)||MODELS[0];root.querySelector("[data-needle]").style.setProperty("--a",d[2]+"deg");root.querySelectorAll(".mdot").forEach(c=>c.setAttribute("fill",c.dataset.k===m?c.dataset.c:"#2c2c3a"));root.querySelectorAll(".ml").forEach(l=>l.classList.toggle("on",l.dataset.model===m))}
+function ledsHtml(cur){const ci=EFFORTS.indexOf(cur);return '<div class="leds">'+EFFORTS.map((e,i)=>'<i class="led'+(i<=ci?" on":"")+'" data-effort="'+e+'" title="'+e+'" style="--i:'+i+';--c:'+ECOL[i]+';height:'+(14+i*7)+'px"></i>').join("")+'</div><div class="elab">'+EFFORTS.map(e=>'<span data-effort="'+e+'">'+ELAB[e]+"</span>").join("")+'</div><div class="gcap">effort<b data-ecap>'+(cur?cur.toUpperCase():"AUTO")+'</b></div><span class="autob" data-effort="">AUTO</span>'}
+function updateLeds(root,ef){const i=EFFORTS.indexOf(ef);root.querySelectorAll(".led").forEach((l,j)=>l.classList.toggle("on",j<=i));root.querySelector("[data-ecap]").textContent=ef?ef.toUpperCase():"AUTO"}
 async function opts(){if(!OPT)OPT=await fetch("api/options").then(r=>r.json());return OPT}
 function chips(cur,auto,act){return OPT.roles.map(o=>'<span class="rc'+(o.role===cur?" on":"")+'" data-act="'+act+'" data-role="'+esc(o.role)+'" style="--c:'+o.color+'">'+mini(o,20)+esc(o.role)+(auto&&o.role===auto?"<em>AUTO</em>":"")+"</span>").join("")}
+function folderName(p){const a=p.split("/").filter(Boolean);return a.slice(-2).join("/")||p}
+function markFolders(){const v=$("ncwd")?$("ncwd").value.trim():"";document.querySelectorAll("#nfold .fc").forEach(c=>c.classList.toggle("on",c.dataset.folder===v))}
 function drawNew(){const o=OPT;
  $("nagent").innerHTML=[["claude","Claude Code"],["codex","Codex"]].map(([k,l])=>'<span class="sg'+(ND.agent===k?" on":"")+(o.agents[k]?"":" off")+'" data-act="newagent" data-agent="'+k+'">'+l+(o.agents[k]?"":" (not installed)")+"</span>").join("");
  $("nrole").innerHTML=chips(ND.role,ND.manual?"":ND.role,"newrole");
  $("nauto").textContent=ND.manual?"you picked":"detected from your text";
- $("nmrow").style.display=ND.agent==="claude"?"":"none"}
+ $("nmrow").style.display=ND.agent==="claude"?"":"none";markFolders()}
 async function openNew(){await opts();const cur=S.find(x=>x.id===sel)||S[0]||{};
- ND={agent:OPT.defaultAgent,role:"Code",manual:false,agentManual:false};
+ ND={agent:OPT.defaultAgent,role:"Code",manual:false,agentManual:false,model:"",effort:""};
  const d=$("dlg");d.hidden=false;
- d.innerHTML='<div class="dbg" data-act="newcancel"></div><div class="dcard"><div class="in"><h3>New session</h3><textarea id="ntext" placeholder="What should the agent do?"></textarea><div class="lbl">AI</div><div class="seg" id="nagent"></div><div class="lbl">Agent type <em id="nauto"></em></div><div class="chips" id="nrole"></div><div class="lbl">Folder</div><input class="f" id="ncwd" list="nfold" autocomplete="off"><datalist id="nfold">'+OPT.folders.map(f=>'<option value="'+esc(f)+'">').join("")+'</datalist><div id="nmrow"><div class="lbl" style="margin-bottom:6px">Model</div><select id="nmodel"><option value="">Default</option><option value="opus">Opus</option><option value="sonnet">Sonnet</option><option value="haiku">Haiku</option></select></div><div class="dact"><button class="btn" data-act="newcancel">Cancel</button><button class="btn new" data-act="newgo">Start</button></div></div></div>';
- $("ncwd").value=cur.cwd||OPT.folders[0]||"";$("ntext").value=loadDraft("new");drawNew();$("ntext").focus()}
+ d.innerHTML='<div class="dbg" data-act="newcancel"></div><div class="dcard gx"><div class="in"><div class="dhd"><h3>New session</h3><span class="dsub">the board starts it for you</span></div><div class="tbox"><textarea id="ntext" placeholder="What should the agent do?"></textarea></div><div class="lbl">AI</div><div class="seg" id="nagent"></div><div class="lbl">Agent type <em id="nauto"></em></div><div class="chips" id="nrole"></div><div class="lbl">Folder</div><div class="fch" id="nfold">'+OPT.folders.map(f=>'<span class="fc" data-folder="'+esc(f)+'" title="'+esc(f)+'">'+esc(folderName(f))+"</span>").join("")+'</div><div class="fbox"><input class="f" id="ncwd" autocomplete="off" spellcheck="false" placeholder="/path/to/project"></div><div id="nmrow" class="nrow"><div class="gc"><div class="gcap" style="margin:0 0 2px">model</div>'+dialHtml("")+'</div><div class="gc">'+ledsHtml("")+'</div></div><div class="dact"><button class="btn" data-act="newcancel">Cancel</button><button class="btn new" data-act="newgo">Start</button></div></div></div>';
+ $("ncwd").value=cur.cwd||OPT.folders[0]||"";$("ntext").value=loadDraft("new");drawNew();$("ntext").focus();
+ const card=d.querySelector(".dcard");requestAnimationFrame(()=>requestAnimationFrame(()=>card.classList.add("live")))}
+$("dlg").addEventListener("click",e=>{const t=e.target;let el;
+ if(el=t.closest("[data-model]")){ND.model=el.dataset.model;updateDial($("dlg"),ND.model);e.stopPropagation();return}
+ if(el=t.closest("[data-effort]")){ND.effort=el.dataset.effort;updateLeds($("dlg"),ND.effort);e.stopPropagation();return}
+ if(el=t.closest("[data-folder]")){$("ncwd").value=el.dataset.folder;markFolders();e.stopPropagation();return}});
+document.addEventListener("input",e=>{if(e.target.id==="ncwd")markFolders()});
 document.addEventListener("input",e=>{if(e.target.id!=="ntext")return;saveDraft("new",e.target.value);clearTimeout(dt);dt=setTimeout(async()=>{const t=$("ntext")&&$("ntext").value;if(!t||!ND)return;const r=await fetch("api/detect?text="+encodeURIComponent(t)).then(r=>r.json()).catch(()=>null);if(!r||!ND)return;if(!ND.manual)ND.role=r.role;if(!ND.agentManual&&r.agent)ND.agent=r.agent;drawNew()},200)});
 document.addEventListener("keydown",e=>{if(e.key==="Escape"){hideMenu();if(!$("dlg").hidden)$("dlg").hidden=true}if(e.target.id==="ntext"&&e.key==="Enter"&&(e.metaKey||e.ctrlKey)){e.preventDefault();startNew()}});
 async function startNew(){const text=$("ntext").value.trim();if(!text){toast("Describe the task first");$("ntext").focus();return}
- const r=await post("api/new",{agent:ND.agent,cwd:$("ncwd").value.trim(),text,role:ND.manual?ND.role:"",model:ND.agent==="claude"?$("nmodel").value:""}).catch(()=>({error:"The board is not answering."}));
+ const r=await post("api/new",{agent:ND.agent,cwd:$("ncwd").value.trim(),text,role:ND.manual?ND.role:"",model:ND.agent==="claude"?ND.model:"",effort:ND.agent==="claude"?ND.effort:""}).catch(()=>({error:"The board is not answering."}));
  if(r.error){toast(r.error);return}
  $("dlg").hidden=true;saveDraft("new","");wantSel=r.id||"";toast("Started a "+ND.role+" agent on "+(ND.agent==="codex"?"Codex":"Claude Code"));[1500,5000,12000].forEach(t=>setTimeout(()=>{last="";load()},t))}
+function limPanel(){const pre=[[0,"OFF"],[500000,"500k"],[1000000,"1M"],[2000000,"2M"],[5000000,"5M"]];
+ return '<div class="panel lp gx live" id="lp"><div class="lbl">Token limit per session</div><div class="lnum"><span class="lbtn" data-lim="-250000">&minus;</span><b id="limv">'+(LIM.tokens?limLabel(LIM.tokens):"OFF")+'</b><span class="lbtn" data-lim="250000">+</span></div><div class="fch lchips">'+pre.map(([v,l])=>'<span class="fc'+(LIM.tokens===v?" on":"")+'" data-limset="'+v+'">'+l+"</span>").join("")+'</div><div class="swr" data-sw="auto"><span>At the limit, move new sessions to a cheaper model</span><i class="swt'+(LIM.auto?" on":"")+'"><b></b></i></div><div class="lbl" style="font-size:10px">Models only move down: Opus, then Sonnet, then Haiku.</div><button class="btn go" data-act="save">Save</button></div>'}
+function renderLim(){const p=$("lp");if(!p)return;const v=$("limv");v.textContent=LIM.tokens?limLabel(LIM.tokens):"OFF";v.classList.remove("bump");void v.offsetWidth;v.classList.add("bump");p.querySelectorAll("[data-limset]").forEach(c=>c.classList.toggle("on",Number(c.dataset.limset)===LIM.tokens));p.querySelector(".swt").classList.toggle("on",LIM.auto)}
 function pinSession(id,on){post("api/pin",{id,pinned:on}).then(r=>{if(r.error){toast(r.error);return}last="";load();toast(on?"Pinned to the top":"Unpinned")})}
 function cp(t){navigator.clipboard?.writeText(t).catch(()=>{});toast("Copied")}
 function openIn(id,target){post("api/open",{id,target}).then(r=>toast(r.error||"Opened"))}
@@ -280,26 +374,34 @@ function menuClick(e){e.stopPropagation();
  const mi=e.target.closest("[data-mi]");if(!mi)return;const item=MENU.items[Number(mi.dataset.mi)];
  if(item.sub){MENU.el.querySelector('[data-sub="'+mi.dataset.mi+'"]').classList.toggle("on");return}
  hideMenu();if(item.run)item.run()}
-function menuItems(s){const it=[];
- it.push({label:s.pinned?"Unpin":"Pin to top",run:()=>pinSession(s.id,!s.pinned)});
- it.push("-");
- it.push({label:"Type: "+s.role,hint:"choose",sub:'<span class="rc'+(s.roleSet?"":" on")+'" data-mrole="" style="--c:#8a8a99">Auto</span>'+OPT.roles.map(o=>'<span class="rc'+(s.roleSet&&o.role===s.role?" on":"")+'" data-mrole="'+esc(o.role)+'" style="--c:'+o.color+'">'+mini(o,18)+esc(o.role)+"</span>").join("")});
- if(s.lower)it.push({label:"Move to "+s.lower+" (cheaper)",hint:"models only go down",run:()=>post("api/downgrade",{id:s.id}).then(r=>{if(r.error){toast(r.error);return}navigator.clipboard?.writeText("/model "+r.model).catch(()=>{});toast("New sessions use "+r.model+". Copied /model "+r.model)})});
- it.push({label:muted[s.id]?"Show clash warnings":"Mute clash warnings",run:()=>{muted[s.id]=!muted[s.id];render();toast(muted[s.id]?"Clash warnings hidden":"Clash warnings shown")}});
- it.push({label:"Skills for this agent",run:()=>{sel=s.id;showSkills=true;first=true;render()}});
- it.push("-");
- it.push({label:"Open folder in Finder",run:()=>openIn(s.id,"finder")});
- it.push({label:"Open in Terminal",run:()=>openIn(s.id,"terminal")});
- it.push({label:"Open in VS Code",run:()=>openIn(s.id,"vscode")});
- it.push("-");
- it.push({label:"Copy name",run:()=>cp(s.title||"")});
- it.push({label:"Copy session ID",hint:s.id.slice(0,8),run:()=>cp(s.id)});
- it.push({label:"Copy resume command",run:()=>cp("cd "+s.cwd+" && "+(s.agent==="codex"?"codex resume ":"claude --resume ")+s.id)});
- return it}
-document.addEventListener("contextmenu",async e=>{const tg=e.target.tagName;if(tg==="TEXTAREA"||tg==="INPUT"||tg==="SELECT")return;e.preventDefault();hideMenu();
+const ICON={finder:'<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',terminal:'<path d="M4 6l6 6-6 6M12 18h8" stroke-linecap="round"/>',vscode:'<path d="M9 7l-5 5 5 5M15 7l5 5-5 5" stroke-linecap="round"/>',skills:'<path d="M12 3l2.4 5.2 5.6.7-4.1 3.9 1.1 5.6-5-2.8-5 2.8 1.1-5.6L4 8.9l5.6-.7z" stroke-linejoin="round"/>'};
+const TILES=[["finder","Finder"],["terminal","Terminal"],["vscode","VS Code"],["skills","Skills"]];
+function gaugePanel(s){
+ const lim=L.sessionTokens,pct=Math.max(0,Math.min(1,s.tokens.used/(lim||2000000))),claude=s.agent==="claude",cm=(s.tune&&s.tune.model)||"",ce=(s.tune&&s.tune.effort)||"";
+ let ticks="";for(let i=0;i<=10;i++){const a=-90+18*i,p1=polar(a,41),p2=polar(a,i%5?38:35);ticks+='<line x1="'+p1[0].toFixed(1)+'" y1="'+p1[1].toFixed(1)+'" x2="'+p2[0].toFixed(1)+'" y2="'+p2[1].toFixed(1)+'" stroke="#3a3a48" stroke-width="1"/>'}
+ const tok='<svg viewBox="0 0 120 70" class="gsv"><path d="M10 62A50 50 0 0 1 110 62" fill="none" stroke="#242430" stroke-width="9" stroke-linecap="round"/><path class="arc" d="M10 62A50 50 0 0 1 110 62" fill="none" stroke="url(#gz)" stroke-width="9" stroke-linecap="round" pathLength="100" stroke-dasharray="100" style="--p:'+(pct*100).toFixed(1)+'"/>'+ticks+'<g class="needle'+(pct>=.7?" hot":" idle")+'" style="--a:'+(-90+180*pct).toFixed(1)+'deg"><line x1="60" y1="62" x2="60" y2="24" stroke="#fff" stroke-width="2" stroke-linecap="round"/></g><circle cx="60" cy="62" r="6" fill="url(#hub)"/></svg>';
+ return '<div class="gh">'+mini(s.face,34)+'<div style="min-width:0"><b>'+esc(s.title||"Untitled session")+'</b><div class="tags"><span class="rl" style="color:'+s.face.color+';background:color-mix(in srgb,'+s.face.color+' 18%,transparent)">'+esc(s.role)+'</span><span class="ag '+s.agent+'">'+(s.agent==="codex"?"CODEX":"CLAUDE")+"</span>"+mtag(s)+"</div></div></div>"
+ +'<div class="gg2"><div class="gc">'+tok+'<div class="gcap">tokens<b>'+kt(s.tokens.used)+(lim?" / "+kt(lim):"")+'</b></div></div><div class="gc'+(claude?"":" off")+'">'+ledsHtml(ce)+"</div></div>"
+ +'<div class="gc'+(claude?"":" off")+'"><div class="gcap" style="margin:0 0 2px">model for this agent'+(claude?"":" (Claude Code only)")+"</div>"+dialHtml(cm)+"</div>"
+ +'<div class="swg"><div class="swr" data-sw="pin"><span>Pinned</span><i class="swt'+(s.pinned?" on":"")+'"><b></b></i></div><div class="swr" data-sw="mute"><span>Mute clash warnings</span><i class="swt'+(muted[s.id]?" on":"")+'"><b></b></i></div></div>'
+ +'<div class="gcard"><div class="gcap" style="margin:2px 4px 4px;text-align:left">agent type</div><div class="gt2"><span class="rc'+(s.roleSet?"":" on")+'" data-mrole="" style="--c:#8a8a99">Auto</span>'+OPT.roles.map(o=>'<span class="rc'+(s.roleSet&&o.role===s.role?" on":"")+'" data-mrole="'+esc(o.role)+'" style="--c:'+o.color+'">'+mini(o,18)+esc(o.role)+"</span>").join("")+"</div></div>"
+ +'<div class="tiles">'+TILES.map(([k,l])=>'<div class="tl" data-tile="'+k+'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">'+ICON[k]+"</svg>"+l+"</div>").join("")+"</div>"
+ +'<div class="cpy"><span class="cb" data-copy="name">Name</span><span class="cb" data-copy="id">ID</span><span class="cb" data-copy="resume">Resume cmd</span></div>'}
+function tune(s,patch){s.tune=Object.assign({},s.tune,patch);return post("api/tune",Object.assign({id:s.id},patch)).then(r=>{if(r.error)toast(r.error);return r})}
+function showPanel(x,y,s){hideMenu();const el=document.createElement("div");el.className="cmenu gp gx";el.innerHTML=gaugePanel(s);el.addEventListener("click",gpClick);document.body.appendChild(el);
+ const r=el.getBoundingClientRect();el.style.left=Math.max(6,Math.min(x,innerWidth-r.width-6))+"px";el.style.top=Math.max(6,Math.min(y,innerHeight-r.height-6))+"px";MENU={el,items:[],sid:s.id};
+ requestAnimationFrame(()=>requestAnimationFrame(()=>el.classList.add("live")))}
+function gpClick(e){e.stopPropagation();const s=S.find(x=>x.id===MENU.sid);if(!s)return;const t=e.target,root=MENU.el;let el;
+ if(el=t.closest("[data-model]")){if(s.agent!=="claude"){toast("Model applies to Claude Code agents");return}const m=el.dataset.model;updateDial(root,m);tune(s,{model:m}).then(r=>{if(r.error)return;if(m)navigator.clipboard?.writeText("/model "+m).catch(()=>{});toast(m?m.toUpperCase()+" for messages from the board. Copied /model "+m+" for the Claude app":"Model back to automatic")});return}
+ if(el=t.closest("[data-effort]")){if(s.agent!=="claude"){toast("Effort applies to Claude Code agents");return}const ef=el.dataset.effort;updateLeds(root,ef);tune(s,{effort:ef}).then(r=>{if(!r.error)toast(ef?ef.toUpperCase()+" effort for messages from the board":"Effort back to automatic")});return}
+ if(el=t.closest("[data-sw]")){const k=el.dataset.sw;el.querySelector(".swt").classList.toggle("on");if(k==="pin"){const on=!s.pinned;s.pinned=on;pinSession(s.id,on)}else{muted[s.id]=!muted[s.id];render();toast(muted[s.id]?"Clash warnings hidden":"Clash warnings shown")}return}
+ if(el=t.closest("[data-mrole]")){const role=el.dataset.mrole;hideMenu();post("api/role",{id:s.id,role}).then(()=>{last="";load();toast(role?"Now a "+role+" agent":"Back to automatic")});return}
+ if(el=t.closest("[data-tile]")){const k=el.dataset.tile;hideMenu();if(k==="skills"){sel=s.id;showSkills=true;first=true;render()}else openIn(s.id,k);return}
+ if(el=t.closest("[data-copy]")){const k=el.dataset.copy;cp(k==="name"?(s.title||""):k==="id"?s.id:"cd "+s.cwd+" && "+(s.agent==="codex"?"codex resume ":"claude --resume ")+s.id);return}}
+document.addEventListener("contextmenu",async e=>{const tg=e.target.tagName;if(tg==="TEXTAREA"||tg==="INPUT"||tg==="SELECT")return;e.preventDefault();if(e.target.closest(".cmenu"))return;hideMenu();
  const x=e.clientX,y=e.clientY,row=e.target.closest("[data-sel]"),face=e.target.closest("[data-face]"),hd=e.target.closest("#hd");
  const id=row?row.dataset.sel:face?face.dataset.face:hd?sel:"";
- if(id){const s=S.find(v=>v.id===id);if(s){await opts();showMenu(x,y,menuItems(s),'<div class="mh">'+mini(s.face,22)+"<span>"+esc(s.title||"Untitled session")+"</span></div>",s.id)}return}
+ if(id){const s=S.find(v=>v.id===id);if(s){await opts();showPanel(x,y,s)}return}
  const m=e.target.closest("[data-msg]");if(m){const tx=(m.querySelector("p")||{}).textContent||"";showMenu(x,y,[{label:"Copy message",run:()=>cp(tx)}],"","")}});
 document.addEventListener("click",e=>{if(MENU&&!e.target.closest(".cmenu"))hideMenu()});
 window.addEventListener("blur",hideMenu);window.addEventListener("resize",hideMenu);

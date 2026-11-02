@@ -8,7 +8,7 @@ import { Hono } from "hono";
 import { lowerModel, readLimits, setProjectModel, writeLimits } from "../../../../hooks/limits.mjs";
 import { AGENTS } from "../../web/src/avatars";
 import { PAGE } from "./page";
-import { addPending, applyRoles, ROLES, setPin, setRole } from "./prefs";
+import { addPending, applyRoles, applyTune, EFFORTS, ROLES, setPin, setRole, setTune, TUNE_MODELS } from "./prefs";
 import { findClashes, guessRole, readAllSessions, type Session } from "./sessions";
 import SKILLS from "./skills.json";
 
@@ -62,7 +62,7 @@ export function sendToSession(s: Session, text: string, run = spawn): Promise<vo
 	const [cmd, args] =
 		s.agent === "codex"
 			? ["codex", ["exec", "--skip-git-repo-check", "--sandbox", "workspace-write", "resume", s.id]]
-			: ["claude", ["-p", "--resume", s.id, "--permission-mode", "acceptEdits"]];
+			: ["claude", ["-p", "--resume", s.id, "--permission-mode", "acceptEdits", ...(s.tune?.model ? ["--model", s.tune.model] : []), ...(s.tune?.effort ? ["--effort", s.tune.effort] : [])]];
 	return new Promise((resolve, reject) => {
 		const child = run(cmd, args as string[], { cwd: s.cwd || undefined, stdio: ["pipe", "ignore", "ignore"] });
 		child.on("error", reject);
@@ -102,6 +102,7 @@ export interface NewSession {
 	cwd: string;
 	text: string;
 	model?: string;
+	effort?: string;
 	/** Claude lets the caller choose the session id, so the board knows it at once. */
 	id?: string;
 }
@@ -112,7 +113,7 @@ export function startNewSession(n: NewSession, run = spawn): Promise<void> {
 	const [cmd, args] =
 		n.agent === "codex"
 			? ["codex", ["exec", "--skip-git-repo-check", "--sandbox", "workspace-write"]]
-			: ["claude", ["-p", "--session-id", n.id as string, "--permission-mode", "acceptEdits", ...(n.model ? ["--model", n.model] : [])]];
+			: ["claude", ["-p", "--session-id", n.id as string, "--permission-mode", "acceptEdits", ...(n.model ? ["--model", n.model] : []), ...(n.effort ? ["--effort", n.effort] : [])]];
 	return new Promise((resolveStart, reject) => {
 		const child = run(cmd, args as string[], { cwd: n.cwd, stdio: ["pipe", "ignore", "ignore"] });
 		child.on("error", reject);
@@ -125,7 +126,7 @@ export function startNewSession(n: NewSession, run = spawn): Promise<void> {
 const BUILD = Bun.hash(PAGE).toString(36);
 
 export function createApp(
-	read = () => applyRoles(readAllSessions()),
+	read = () => applyTune(applyRoles(readAllSessions())),
 	send = sendToSession,
 	deps: { start?: typeof startNewSession; which?: typeof installed; open?: typeof openIn } = {},
 ) {
@@ -233,9 +234,21 @@ export function createApp(
 		if (!(await open(String(target), s.cwd))) return c.json({ error: `Could not open ${names[String(target)] ?? "that"}.` }, 400);
 		return c.json({ opened: true });
 	});
+	// The model and effort the board uses for messages it sends to a Claude Code agent. "" clears one.
+	app.post("/api/tune", async (c) => {
+		if (!sameOrigin(c)) return c.json({ error: "Send JSON from the board." }, 403);
+		const { id, model, effort } = (await c.req.json().catch(() => ({}))) as { id?: string; model?: string; effort?: string };
+		const s = read().find((x) => x.id === id);
+		if (!s) return c.json({ error: "That session is gone." }, 404);
+		if (s.agent !== "claude") return c.json({ error: "Model and effort apply to Claude Code agents." }, 400);
+		if (model === undefined && effort === undefined) return c.json({ error: "Pick a model or an effort level." }, 400);
+		if (model && !TUNE_MODELS.includes(model)) return c.json({ error: "Pick haiku, sonnet or opus." }, 400);
+		if (effort && !EFFORTS.includes(effort)) return c.json({ error: "Pick low, medium, high, xhigh or max." }, 400);
+		return c.json(setTune(s.id, { model, effort }));
+	});
 	app.post("/api/new", async (c) => {
 		if (!sameOrigin(c)) return c.json({ error: "Send JSON from the board." }, 403);
-		const b = (await c.req.json().catch(() => ({}))) as { agent?: string; cwd?: string; text?: string; role?: string; model?: string };
+		const b = (await c.req.json().catch(() => ({}))) as { agent?: string; cwd?: string; text?: string; role?: string; model?: string; effort?: string };
 		const text = String(b.text ?? "").trim();
 		if (!text) return c.json({ error: "Describe the task first." }, 400);
 		if (text.length > PROMPT_LIMIT) return c.json({ error: "That message is too long." }, 400);
@@ -249,12 +262,13 @@ export function createApp(
 			return c.json({ error: "That folder does not exist." }, 400);
 		}
 		const model = b.agent === "claude" && b.model && MODELS.includes(b.model) ? b.model : undefined;
+		const effort = b.agent === "claude" && b.effort && EFFORTS.includes(b.effort) ? b.effort : undefined;
 		const id = b.agent === "claude" ? randomUUID() : undefined;
 		if (b.role) {
 			if (id) setRole(id, b.role);
 			else addPending({ agent: b.agent, cwd, prefix: (text.split("\n")[0] ?? "").slice(0, 40), role: b.role });
 		}
-		start({ agent: b.agent, cwd, text, model, id }).catch((e) => console.error("start failed:", e));
+		start({ agent: b.agent, cwd, text, model, effort, id }).catch((e) => console.error("start failed:", e));
 		return c.json({ started: true, id }, 202);
 	});
 	app.get("/", (c) => c.html(PAGE));

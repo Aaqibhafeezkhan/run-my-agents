@@ -95,4 +95,4 @@ cd services/app/board && bun run dev
 
 ## Pins and the right-click menu
 
-Right-click an agent for its menu: pin or unpin, change its type, move it to a cheaper model, open its folder in Finder, Terminal or VS Code, and copy its name, ID or resume command. Pins from the Claude app show as pinned too. Pins made in the board are saved in `~/.run-my-agents/pins.json` and never change the Claude app; unpinning here hides an app pin on this board only.
+Right-click an agent for its gauges panel: a token gauge, a model dial (Auto, Haiku, Sonnet, Opus), an effort gauge (low to max), switches for Pin and Mute, the agent type, and tiles to open its folder in Finder, Terminal or VS Code, plus copy buttons. The model and effort you set are used for every message the board sends to that agent (`claude --model --effort`); Claude Code cannot change a running session's model from outside, so the dial also copies `/model <name>` for the Claude app. Pins from the Claude app show as pinned too. Pins made in the board are saved in `~/.run-my-agents/pins.json` and never change the Claude app; unpinning here hides an app pin on this board only.
