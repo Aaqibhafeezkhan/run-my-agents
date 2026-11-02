@@ -52,7 +52,10 @@ function canonical(path) {
   } catch {
     const parent = dirname(path);
     if (parent === path) return path;
-    return join(canonical(parent), basename(path));
+    const name = basename(path);
+    const foldedName =
+      process.platform === "win32" || process.platform === "darwin" ? name.toLowerCase() : name;
+    return join(canonical(parent), foldedName);
   }
 }
 
@@ -69,7 +72,8 @@ function main() {
   if (!session || !raw) return;
 
   const cwd = input.cwd || process.cwd();
-  const file = canonical(isAbsolute(raw) ? raw : resolve(cwd, raw));
+  const requestedPath = isAbsolute(raw) ? raw : resolve(cwd, raw);
+  const file = canonical(requestedPath);
   const now = Date.now();
 
   mkdirSync(DIR, { recursive: true });
@@ -100,7 +104,7 @@ function main() {
   const where = other.branch ? ` on branch ${other.branch}` : "";
   const reason =
     `Run My Agents: another Claude session (${other.session.slice(0, 8)}${where}, in ${other.cwd}) ` +
-    `edited ${basename(file)} ${ago(now - other.at)}. ` +
+    `edited ${basename(requestedPath)} ${ago(now - other.at)}. ` +
     "Your edit could overwrite its work. Read the file again first, or work on a different file. " +
     "If you are sure, make the edit again and it will go through.";
   process.stdout.write(
