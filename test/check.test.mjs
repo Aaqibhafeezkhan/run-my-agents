@@ -121,12 +121,12 @@ test("warned-once state is scoped to the session, file, and other session tuple"
   assert.match(firstWarning, /"permissionDecision":"deny"/);
 
   assert.equal(
-    runHook(dir, edit("session-b", file, cwd)),
+    runHook(dir, edit("bravo-two", file, cwd)),
     "",
     "the same session pair should be allowed on its retry",
   );
 
-  const reverseWarning = runHook(dir, edit("session-a", file, cwd));
+  const reverseWarning = runHook(dir, edit("alpha-one", file, cwd));
   assert.match(reverseWarning, /"permissionDecision":"deny"/);
   assert.match(reverseWarning, /bravo-tw/);
 });
