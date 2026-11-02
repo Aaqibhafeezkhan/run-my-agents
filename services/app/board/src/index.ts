@@ -250,7 +250,7 @@ export function createApp(
 		if (sending.has(s.id)) return c.json({ error: `${s.role} is still answering your last message.` }, 409);
 		// A message from here starts a second copy of the session. If the Claude app is working in it right now, the
 		// two would run on the same conversation at once, so wait for it to settle.
-		if (s.viaApp === true && Date.now() - s.updatedAt < 20_000) return c.json({ error: `${s.role} is working in the Claude app right now. Wait for it to finish, or message it there.` }, 409);
+		if (s.viaApp === true && !s.awaiting && Date.now() - s.updatedAt < 20_000) return c.json({ error: `${s.role} is working in the Claude app right now. Wait for it to finish, or message it there.` }, 409);
 		// Only files this board saved for this session can be attached, however the request names them.
 		const dir = join(dataDir(), "uploads", s.id);
 		const attached = (Array.isArray(files) ? files : []).slice(0, 10).map(String).filter((f) => {

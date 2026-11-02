@@ -39,6 +39,8 @@ export interface Session {
 	pinned: boolean;
 	/** True when you chose this session's type, instead of the board guessing it. */
 	roleSet?: boolean;
+	/** The agent finished its turn with choices for you and is waiting. */
+	awaiting?: boolean;
 	/** Pull requests the Claude app attached to this session. */
 	prs?: Pr[];
 	/** Branches the session wrote to, from the Claude app. */
@@ -57,11 +59,20 @@ export interface Session {
 	feed: FeedItem[];
 }
 
+/** The choices an agent offers at the end of its turn (its next-step box, or a question), until you answer. */
+export interface Options {
+	/** The summary the agent shows above the question. */
+	recap?: string;
+	ask: string;
+	labels: string[];
+}
+
 export interface FeedItem {
 	at: number;
 	who: "you" | "agent";
 	text: string;
 	tools: string[];
+	options?: Options;
 }
 
 const FEED_SIZE = 16;
@@ -99,6 +110,22 @@ function textOf(content: unknown): string {
 		.join(" ");
 }
 
+/** Reads the choices out of a wrap-up box or an AskUserQuestion call. */
+export function readOptions(name: string, input?: Record<string, unknown>): Options | undefined {
+	const labels = (list: unknown): string[] =>
+		Array.isArray(list) ? list.map((o) => String((o as { label?: unknown })?.label ?? "").trim()).filter(Boolean).slice(0, 4) : [];
+	if (name.endsWith("__wrap_up")) {
+		const l = labels(input?.actions);
+		return l.length ? { recap: String(input?.recap ?? "").slice(0, 600), ask: String(input?.ask ?? "").slice(0, 200), labels: l } : undefined;
+	}
+	if (name === "AskUserQuestion") {
+		const q = (Array.isArray(input?.questions) ? input.questions[0] : undefined) as { question?: unknown; options?: unknown } | undefined;
+		const l = labels(q?.options);
+		return l.length ? { ask: String(q?.question ?? "").slice(0, 200), labels: l } : undefined;
+	}
+	return undefined;
+}
+
 /** One transcript to a Session, or undefined when it has no conversation in it. */
 /** Session ids are UUID-like. Anything else is dropped: ids go into the page's HTML and into `claude --resume <id>`. */
 export const SESSION_ID = /^[\w-]{1,128}$/;
@@ -106,6 +133,8 @@ export const SESSION_ID = /^[\w-]{1,128}$/;
 export function parseSession(id: string, lines: string[], updatedAt: number): Session | undefined {
 	if (!SESSION_ID.test(id) || id.startsWith("-")) return undefined;
 	const s: Session = { id, agent: "claude", model: "", tokens: { used: 0, cached: 0 }, cwd: "", branch: "", title: "", said: "", doing: "", edits: [], updatedAt, role: "Code", pinned: false, feed: [] };
+	let optItem: FeedItem | undefined;
+	let optToolId = "";
 	for (const line of lines) {
 		let e: {
 			type?: string;
@@ -123,13 +152,23 @@ export function parseSession(id: string, lines: string[], updatedAt: number): Se
 		if (e.cwd) s.cwd = e.cwd;
 		if (e.gitBranch) s.branch = e.gitBranch;
 		const at = e.timestamp ? Date.parse(e.timestamp) : updatedAt;
+		// An answer to a question call arrives as its tool result; a typed answer arrives as a user message.
+		if (optToolId && e.type === "user" && Array.isArray(e.message?.content) && (e.message.content as { type?: string; tool_use_id?: string }[]).some((x) => x?.type === "tool_result" && x.tool_use_id === optToolId)) {
+			if (optItem) delete optItem.options;
+			optItem = undefined;
+			optToolId = "";
+		}
 		if (e.type === "user" && !e.isMeta && !s.title) {
 			const t = textOf(e.message?.content).trim();
 			if (t && !t.startsWith("<")) s.title = t.split("\n")[0].slice(0, 90);
 		}
 		if (e.type === "user" && !e.isMeta) {
 			const t = textOf(e.message?.content).trim();
-			if (t && !t.startsWith("<")) s.feed.push({ at, who: "you", text: t.slice(0, 2000), tools: [] });
+			if (t && !t.startsWith("<")) {
+				s.feed.push({ at, who: "you", text: t.slice(0, 2000), tools: [] });
+				if (optItem) delete optItem.options;
+				optItem = undefined;
+			}
 		}
 		const u = e.type === "assistant" ? e.message?.usage : undefined;
 		if (u) {
@@ -144,10 +183,23 @@ export function parseSession(id: string, lines: string[], updatedAt: number): Se
 			const item =
 				last?.who === "agent" ? last : { at, who: "agent" as const, text: "", tools: [] as string[] };
 			if (item !== last) s.feed.push(item);
-			if (words) item.text = words.slice(0, 5000);
+			// A turn can hold several text blocks between its tool calls; show all of them, newest last.
+			if (words) item.text = item.text ? `${item.text}\n\n${words}`.slice(-8000) : words.slice(0, 8000);
 			item.at = at;
-			for (const c of e.message.content as { type?: string; name?: string; input?: Record<string, unknown> }[]) {
+			for (const c of e.message.content as { type?: string; id?: string; name?: string; input?: Record<string, unknown> }[]) {
 				if (c?.type !== "tool_use" || !c.name) continue;
+				const opts = readOptions(c.name, c.input);
+				if (opts) {
+					if (optItem && optItem !== item) delete optItem.options;
+					item.options = opts;
+					optItem = item;
+					optToolId = c.name === "AskUserQuestion" ? String(c.id ?? "") : "";
+				} else if (optItem) {
+					// the agent went on working, so the choices are stale
+					delete optItem.options;
+					optItem = undefined;
+					optToolId = "";
+				}
 				const file = String(c.input?.file_path ?? c.input?.notebook_path ?? "");
 				s.doing = file ? `${c.name} ${basename(file)}` : c.name.replace(/^mcp__[^_]+__/, "");
 				if (file && EDIT_TOOLS.has(c.name)) s.edits.push({ file, at });
@@ -156,6 +208,7 @@ export function parseSession(id: string, lines: string[], updatedAt: number): Se
 		}
 	}
 	if (!s.title && !s.said) return undefined;
+	s.awaiting = !!optItem;
 	s.feed = s.feed.filter((f) => f.text || f.tools.length).slice(-FEED_SIZE);
 	s.role = guessRole(s.title, s.edits.map((x) => x.file));
 	return s;

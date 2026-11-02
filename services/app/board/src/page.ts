@@ -26,7 +26,7 @@ body{background:#06060a;color:var(--text);font:13px/1.5 var(--body);-webkit-font
 .it{display:flex;align-items:center;gap:10px;padding:6px 8px;min-height:56px;border-radius:var(--r-row);cursor:pointer;transition:background .2s,transform .2s}
 .it:hover{background:#1e1e28;transform:translateX(3px)}.it:active{transform:scale(.97)}
 .it.sel{background:linear-gradient(90deg,#26263a,#1b1b25);box-shadow:inset 2px 0 0 var(--green)}
-.it .t{min-width:0;flex:1}.nm{display:block;font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.meta{display:flex;gap:6px;align-items:center;font-size:11px;color:var(--muted);margin:1px 0}.md{font:600 9px var(--mono);letter-spacing:.04em;border-radius:var(--r-chip);padding:1px 5px}
+button,input,textarea,select{font-family:inherit}.nm::first-letter{font-family:Georgia,"Iowan Old Style","Times New Roman",serif;font-style:italic;font-weight:700;font-size:1.3em;color:var(--mint);letter-spacing:.01em}.it .t{min-width:0;flex:1}.nm{display:block;font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.meta{display:flex;gap:6px;align-items:center;font-size:11px;color:var(--muted);margin:1px 0}.md{font:600 9px var(--mono);letter-spacing:.04em;border-radius:var(--r-chip);padding:1px 5px}
 .meta{flex-wrap:wrap}
 .rl{font:600 10px var(--mono);border-radius:var(--r-chip);padding:1px 6px}.it small{display:block;color:var(--muted);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .av{position:relative;flex:none;animation:bob 3s ease-in-out infinite;filter:drop-shadow(0 4px 4px rgba(0,0,0,.55));transition:transform .2s;cursor:pointer}
@@ -344,6 +344,21 @@ body.dnd .grp[data-grp="Pinned"],body.dnd .grp[data-grp="Closed"]{outline:1px da
 .prsk{height:34px;border-radius:11px;background:linear-gradient(90deg,#15151d,#23232e,#15151d);background-size:200% 100%;animation:tflow 1.2s linear infinite}
 .pre{padding:10px;color:var(--muted);font-size:12px}
 .prn{margin-left:4px;font:600 9px var(--mono);padding:0 5px;border-radius:999px;background:var(--mint);color:#04120a}
+.main{position:relative}
+.newpill{position:absolute;left:50%;bottom:78px;transform:translate(-50%,10px);opacity:0;pointer-events:none;padding:6px 14px;border-radius:999px;background:linear-gradient(#34d27a,#22c55e);color:#04120a;font:600 11px var(--body);box-shadow:inset 0 1px 0 rgba(255,255,255,.4),0 3px 0 #15803d,0 10px 24px -8px rgba(34,197,94,.7);cursor:pointer;transition:opacity .25s,transform .25s;z-index:5}
+.newpill.on{opacity:1;transform:translate(-50%,0);pointer-events:auto;animation:nbob 1.6s ease-in-out infinite}
+@keyframes nbob{50%{transform:translate(-50%,-3px)}}
+.opts{margin-top:6px;padding:8px;border-radius:12px;background:rgba(0,0,0,.28);box-shadow:inset 0 0 0 1px var(--line);animation:in .35s ease both}
+.orec{color:var(--muted);font-size:13px;line-height:1.4;margin-bottom:6px}.orec p{margin:0}
+.oask{font-weight:600;font-size:13px;margin-bottom:6px;color:var(--text)}
+.obtns{display:flex;flex-wrap:wrap;gap:6px}
+.obtn{display:inline-flex;align-items:center;gap:8px;padding:7px 13px;border-radius:999px;background:linear-gradient(#232330,#17171f);box-shadow:inset 0 1px 0 rgba(255,255,255,.08),inset 0 0 0 1px var(--line),0 3px 0 #0b0b10;color:var(--text);font:600 12px var(--body);cursor:pointer;position:relative;overflow:hidden;transition:transform .15s,box-shadow .15s,filter .2s,opacity .3s}
+.obtn::after{content:"";position:absolute;inset:0;background:linear-gradient(100deg,transparent 30%,rgba(255,255,255,.3) 50%,transparent 70%);transform:translateX(-120%);transition:transform .6s;pointer-events:none}
+.obtn:hover{transform:translateY(-2px);filter:brightness(1.18)}.obtn:hover::after{transform:translateX(120%)}.obtn:active{transform:translateY(2px);box-shadow:inset 0 1px 0 rgba(255,255,255,.08),inset 0 0 0 1px var(--line),0 0 0 #0b0b10}
+.obtn.first{background:linear-gradient(#34d27a,#22c55e);color:#04120a;box-shadow:inset 0 1px 0 rgba(255,255,255,.4),0 3px 0 #15803d,0 8px 22px -8px rgba(34,197,94,.75)}
+.obtn kbd{font:600 9px var(--mono);padding:1px 5px;border-radius:6px;background:rgba(0,0,0,.22);color:inherit;opacity:.8}
+.obtn.done{opacity:.4;pointer-events:none}.obtn.picked{opacity:1;animation:pickd .5s ease}
+@keyframes pickd{40%{transform:scale(1.08)}}
 .empty{color:var(--muted);text-align:center;margin:auto;padding:40px}
 @media (max-width:720px){.app{grid-template-columns:1fr}.side{max-height:40vh}}
 </style></head><body>
@@ -354,7 +369,7 @@ body.dnd .grp[data-grp="Pinned"],body.dnd .grp[data-grp="Closed"]{outline:1px da
 <linearGradient id="gm" gradientUnits="userSpaceOnUse" x1="10" y1="0" x2="110" y2="0"><stop offset="0" stop-color="#a1a1b3"/><stop offset=".3" stop-color="#6ee7a0"/><stop offset=".65" stop-color="#38bdf8"/><stop offset="1" stop-color="#fbbf24"/></linearGradient>
 <radialGradient id="hub" cx="35%" cy="30%" r="75%"><stop offset="0" stop-color="#fff"/><stop offset=".5" stop-color="#8a90a6"/><stop offset="1" stop-color="#3a3f52"/></radialGradient>
 </defs></svg>
-<div class="app"><nav class="side" id="side"></nav><main class="main"><div class="hd" id="hd"></div><div id="meter"></div><div id="skills"></div><div id="roles"></div><div id="warns"></div><div class="feed" id="feed"></div><div class="box" id="box"></div></main></div>
+<div class="app"><nav class="side" id="side"></nav><main class="main"><div class="hd" id="hd"></div><div id="meter"></div><div id="skills"></div><div id="roles"></div><div id="warns"></div><div class="feed" id="feed"></div><div class="newpill" id="newpill" data-act="tobottom">\u2193 New messages</div><div class="box" id="box"></div></main></div>
 <div class="toast" id="toast"></div>
 <div class="dlg" id="dlg" hidden></div>
 <div id="drop" hidden><div class="dz"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5M5 20h14"/></svg><span id="dzt">Drop files to attach</span><small>up to 10 files, 25 MB each</small></div></div>
@@ -419,11 +434,11 @@ function render(){
  const mine=C.filter(c=>c.sessions.includes(s.id));
  $("warns").innerHTML=mine.filter(c=>!muted[s.id]).map(c=>{const other=c.sessions.filter(x=>x!==s.id).map(x=>(S.find(y=>y.id===x)||{role:"another session"}).role).join(", ");return '<div class="warn" data-act="go" data-file="'+esc(c.file)+'" data-other="'+c.sessions.find(x=>x!==s.id)+'"><span>⚠ '+esc(other)+" also edited "+esc(c.file.split("/").pop())+" in the last 10 min</span><span>Open "+esc(other)+"</span></div>"}).join("");
  const feed=$("feed"),stick=feed.scrollTop+feed.clientHeight>=feed.scrollHeight-40;
- const key=s.id+":"+s.feed.length+":"+(s.feed.at(-1)?.at??0)+":"+state(s);
- if(key!==feedKey){feedKey=key;
- feed.innerHTML=s.feed.map(m=>'<div class="msg '+(m.who==="you"?"from-me":"from-ag")+'" data-msg><div class="bub"><div class="who"><b>'+(m.who==="you"?"You":esc(s.role))+"</b><time>"+hm(m.at)+"</time></div>"+(m.text?'<div class="rich'+(m.text.length>4800?" long":"")+'">'+renderMarkdown(m.text)+"</div>":"")+(m.tools.length?'<div class="tools">'+toolRuns(m.tools)+"</div>":"")+"</div></div>").join("")+(state(s)==="g"?'<div class="typing"><i></i><i></i><i></i></div>':"");
- if(stick||first)feed.scrollTop=feed.scrollHeight;}
- if(composerFor!==s.id){composerFor=s.id;$("box").outerHTML='<div class="compose" id="box"><i class="glow"></i><i class="sh"></i><i class="line"></i><i class="fill"></i><div class="sky"><div class="fairy"><i class="wl"></i><i class="wr"></i><b></b></div><div class="fairy f2"><i class="wl"></i><i class="wr"></i><b></b></div></div><div class="atray" id="atray"></div><div class="row"><div class="watch">'+face(s,28)+'</div><span class="clip" data-act="attach" title="Attach files (or drop them anywhere)">'+ico(IC.clip)+'<b id="clipn" hidden>0</b></span><textarea id="msg" rows="1" placeholder="Message '+esc(s.role)+(s.agent==="codex"?" (Codex)":"")+'…"></textarea><span class="ch" id="ch">0</span><div class="eq"><i></i><i></i><i></i><i></i></div><span class="rs" data-act="resume" title="Copy the resume command">⧉</span><button class="send" data-act="send">Send</button></div></div>';restoreDraft(s.id);drawTray()}
+ const key=s.id+":"+s.feed.length+":"+(s.feed.at(-1)?.at??0)+":"+state(s)+":"+(s.sending?1:0);
+ if(key!==feedKey){const sc=feedKey.split(":")[0]!==s.id;feedKey=key;
+ feed.innerHTML=s.feed.map((m,mi)=>'<div class="msg '+(m.who==="you"?"from-me":"from-ag")+'" data-msg><div class="bub"><div class="who"><b>'+(m.who==="you"?"You":esc(s.role))+"</b><time>"+hm(m.at)+"</time></div>"+(m.text?'<div class="rich'+(m.text.length>9000?" long":"")+'">'+renderMarkdown(m.text)+"</div>":"")+(m.tools.length?'<div class="tools">'+toolRuns(m.tools)+"</div>":"")+(m.options&&mi===s.feed.length-1&&!s.sending?optsHtml(m.options):"")+"</div></div>").join("")+(state(s)==="g"?'<div class="typing"><i></i><i></i><i></i></div>':"");
+ if(stick||first||sc)feed.scrollTop=feed.scrollHeight;else armScroll()}
+ if(composerFor!==s.id){composerFor=s.id;$("box").outerHTML='<div class="compose" id="box"><i class="glow"></i><i class="sh"></i><i class="line"></i><i class="fill"></i><div class="sky"><div class="fairy"><i class="wl"></i><i class="wr"></i><b></b></div><div class="fairy f2"><i class="wl"></i><i class="wr"></i><b></b></div></div><div class="atray" id="atray"></div><div class="row"><div class="watch">'+face(s,28)+'</div><span class="clip" data-act="attach" title="Attach files (or drop them anywhere)">'+ico(IC.clip)+'<b id="clipn" hidden>0</b></span><textarea id="msg" rows="1" placeholder="Message '+esc(s.role)+(s.agent==="codex"?" (Codex)":"")+(s.viaApp===true?" \u00b7 separate copy":"")+'…" title="'+(s.viaApp===true?"This session is open in the Claude app. A message from here runs a separate copy of it, which the app does not show live.":"Message this agent")+'"></textarea><span class="ch" id="ch">0</span><div class="eq"><i></i><i></i><i></i><i></i></div><span class="rs" data-act="resume" title="Copy the resume command">⧉</span><button class="send" data-act="send">Send</button></div></div>';restoreDraft(s.id);drawTray()}
  const sb=document.querySelector(".send");if(sb){sb.disabled=!!s.sending;sb.textContent=s.sending?"Answering…":"Send"}
  first=false;
 }
@@ -453,6 +468,7 @@ document.addEventListener("click",e=>{
   else if(k==="newrole"){ND.role=a.dataset.role;ND.manual=true;drawNew()}
   else if(k==="roles"){showRoles=!showRoles;opts().then(render)}
   else if(k==="setrole"){post("api/role",{id:s.id,role:a.dataset.role}).then(()=>{last="";load();toast(a.dataset.role?"Now a "+a.dataset.role+" agent":"Back to automatic")})}
+  else if(k==="tobottom"){const f=$("feed");f.scrollTo({top:f.scrollHeight,behavior:"smooth"});setTimeout(updatePill,700)}
   else if(k==="skills"){showSkills=!showSkills;render()}
   else if(k==="down"){post("api/downgrade",{id:s.id}).then(r=>{if(r.error){toast(r.error);return}navigator.clipboard?.writeText("/model "+r.model).catch(()=>{});toast("New sessions use "+r.model+". Copied /model "+r.model+" for this one")})}
   return}
@@ -461,6 +477,7 @@ document.addEventListener("click",e=>{
  const lw=e.target.closest("#lp [data-sw]");if(lw){LIM.auto=!LIM.auto;renderLim();return}
  const ct=e.target.closest("[data-ctext]");if(ct){if(ct.dataset.ctext)cp(ct.dataset.ctext);return}
  const rm=e.target.closest("[data-rmatt]");if(rm){const a=ATT[composerFor]||[];a.splice(Number(rm.dataset.rmatt),1);drawTray();return}
+ const ob=e.target.closest("[data-opt]");if(ob){answer(ob.dataset.opt);return}
  const sk=e.target.closest("[data-skill]");if(sk){navigator.clipboard?.writeText("/"+sk.dataset.skill).catch(()=>{});toast("Copied /"+sk.dataset.skill);return}
  const cc=e.target.closest("[data-copycode]");if(cc){cp(cc.parentElement.querySelector("code").textContent);return}
  if(e.target.closest("a"))return;
@@ -588,6 +605,9 @@ function showModelPick(el,s){hideMenu();const cur=(s.tune&&s.tune.model)||"";con
  m.innerHTML='<div class="gcap" style="margin:0 2px 5px;text-align:left">model for '+esc(s.role)+'</div><div class="mls">'+MODELS.map(([k,l,a,c])=>'<span class="ml'+(k===cur?" on":"")+'" data-pick="'+k+'" style="--c:'+c+'">'+l+"</span>").join("")+'</div><div class="mnote">Every message you send from the board to this agent uses it. For the Claude app, paste /model after choosing (it is copied).</div>';
  m.addEventListener("click",e=>{e.stopPropagation();const p=e.target.closest("[data-pick]");if(!p)return;const k=p.dataset.pick;hideMenu();tune(s,{model:k}).then(r=>{if(r.error)return;render();if(k)navigator.clipboard?.writeText("/model "+k).catch(()=>{});toast(k?k.toUpperCase()+" is set for your next message from the board. Copied /model "+k:"Model back to automatic")})});
  document.body.appendChild(m);const b=el.getBoundingClientRect(),r=m.getBoundingClientRect();m.style.left=Math.max(8,Math.min(b.left,innerWidth-r.width-8))+"px";m.style.top=Math.max(8,Math.min(b.bottom+6,innerHeight-r.height-8))+"px";MENU={el:m,items:[],sid:s.id}}
+function optsHtml(o){return '<div class="opts">'+(o.recap?'<div class="orec">'+renderMarkdown(o.recap)+"</div>":"")+(o.ask?'<div class="oask">'+esc(o.ask)+"</div>":"")+'<div class="obtns">'+o.labels.map((l,i)=>'<span class="obtn'+(i===0?" first":"")+'" data-opt="'+esc(l)+'">'+esc(l)+(i===0?"<kbd>\u2318\u21b5</kbd>":"")+"</span>").join("")+"</div></div>"}
+async function answer(label){const s=S.find(x=>x.id===sel);if(!s)return;const r=await post("api/send",{id:s.id,text:label}).catch(()=>({error:"The board is not answering."}));if(r.error){toast(r.error);return}
+ document.querySelectorAll("#feed .obtn").forEach(b=>{b.classList.add("done");if(b.dataset.opt===label)b.classList.add("picked")});s.sending=true;toast("Sent: "+label);last=""}
 function toolRuns(ts){const r=[];for(const t of ts){const l=r[r.length-1];if(l&&l[0]===t)l[1]++;else r.push([t,1])}return r.map(([t,n])=>'<span class="tool" data-act="tool" title="'+esc(t)+(n>1?" \u00d7"+n:"")+'">'+esc(t)+(n>1?"<b>\u00d7"+n+"</b>":"")+"</span>").join("")}
 function pinSession(id,on){post("api/pin",{id,pinned:on}).then(r=>{if(r.error){toast(r.error);return}last="";load();toast(on?"Pinned to the top":"Unpinned")})}
 function cp(t){navigator.clipboard?.writeText(t).catch(()=>{});toast("Copied")}
@@ -640,5 +660,16 @@ document.addEventListener("contextmenu",async e=>{const tg=e.target.tagName;if(t
  const m=e.target.closest("[data-msg]");if(m){const tx=(m.querySelector(".rich")||{}).textContent||"";showMenu(x,y,[{label:"Copy message",run:()=>cp(tx)}],"","")}});
 document.addEventListener("click",e=>{if(MENU&&!e.target.closest(".cmenu"))hideMenu()});
 window.addEventListener("blur",hideMenu);window.addEventListener("resize",hideMenu);
+let scT=0,feedHover=false,lastUser=0;
+function atBottom(f){return f.scrollTop+f.clientHeight>=f.scrollHeight-40}
+function updatePill(){const f=$("feed"),p=$("newpill");if(f&&p)p.classList.toggle("on",!atBottom(f))}
+/* A new message while you are not at the bottom: after 5 seconds, scroll down, unless the mouse is over the messages, text is selected, or you scrolled in the last few seconds. */
+function armScroll(){clearTimeout(scT);updatePill();scT=setTimeout(function tick(){const f=$("feed");if(!f||atBottom(f)){updatePill();return}
+ if(!feedHover&&!String(getSelection()).length&&Date.now()-lastUser>4500){f.scrollTo({top:f.scrollHeight,behavior:"smooth"});setTimeout(updatePill,800)}else scT=setTimeout(tick,5000)},5000)}
+(function(){const f=$("feed");f.addEventListener("mouseenter",()=>{feedHover=true});f.addEventListener("mouseleave",()=>{feedHover=false});f.addEventListener("scroll",updatePill);["wheel","touchmove","mousedown","keydown"].forEach(n=>f.addEventListener(n,()=>{lastUser=Date.now()},{passive:true}))})();
+document.addEventListener("keydown",e=>{if((e.metaKey||e.ctrlKey)&&e.key==="Enter"&&e.target.id!=="ntext"){const t=$("msg"),b=document.querySelector("#feed .obtn.first:not(.done)");if(b&&(!t||!t.value.trim())){e.preventDefault();answer(b.dataset.opt)}}});
+/* In the Mac app, dragging anywhere that is not a control moves the window. */
+document.addEventListener("mousedown",e=>{const h=window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.drag;if(!h||e.button!==0||e.detail>1)return;
+ if(e.target.closest('button,a,input,textarea,select,[data-act],[data-sel],[data-face],[data-msg],[data-opt],[data-mpick],[data-pick],[data-prs],[data-ctext],[data-grp],[draggable="true"],.bub,.cmenu,.dcard,.dz,.prpop,.rich,.swr,.led,.ml,.tl,.cb,.rc,.fc,.sg,.lbtn,.clip,.att,.obtn,.compose,#drop,.dlg'))return;h.postMessage(0)});
 load();setInterval(load,3000);
 </script></body></html>`;

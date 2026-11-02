@@ -8,7 +8,7 @@ let healthURL = URL(string: "http://127.0.0.1:\(port)/health")!
 // BAKED_BOARD_DIR is replaced by build.sh
 let bakedBoardDir = "__BAKED_BOARD_DIR__"
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
   var window: NSWindow!
   var web: WKWebView!
   var statusItem: NSStatusItem!
@@ -102,8 +102,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     window.minSize = NSSize(width: 720, height: 480)
     window.backgroundColor = NSColor(red: 0x0b/255, green: 0x0b/255, blue: 0x12/255, alpha: 1)
     window.isReleasedWhenClosed = false
+    window.isMovableByWindowBackground = true
     window.setFrameAutosaveName("RunMyAgentsMain")
     let cfg = WKWebViewConfiguration()
+    // The page asks to drag the window when you press on something that is not a control.
+    cfg.userContentController.add(self, name: "drag")
     cfg.preferences.setValue(true, forKey: "javaScriptCanAccessClipboard")
     cfg.preferences.setValue(true, forKey: "developerExtrasEnabled")
     web = WKWebView(frame: window.contentView!.bounds, configuration: cfg)
@@ -112,6 +115,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     web.setValue(false, forKey: "drawsBackground")
     window.contentView!.addSubview(web)
     window.center(); window.makeKeyAndOrderFront(nil)
+  }
+
+  func userContentController(_ c: WKUserContentController, didReceive m: WKScriptMessage) {
+    guard m.name == "drag", let e = NSApp.currentEvent, e.type == .leftMouseDown || e.type == .leftMouseDragged else { return }
+    window.performDrag(with: e)
   }
 
   // Opt-in self-check: RUN_MY_AGENTS_SNAPSHOT=/path.png writes a snapshot of the page after load.

@@ -906,11 +906,69 @@ describe("model tag switcher, PR hover, chat spacing", () => {
 
 	it("shows more chat text: tighter spacing, wider bubbles, smaller tool labels that group repeats, no early cut-off", async () => {
 		const { PAGE } = await import("../src/page");
-		for (const part of [".bub{max-width:94%", ".rich p{margin:0 0 4px}", ".tool{font-size:9px", "function toolRuns(", "m.text.length>4800"]) expect(PAGE).toContain(part);
+		for (const part of [".bub{max-width:94%", ".rich p{margin:0 0 4px}", ".tool{font-size:9px", "function toolRuns(", "m.text.length>9000"]) expect(PAGE).toContain(part);
 		const js = PAGE.split("<script>")[1].split("</script>")[0];
 		const runs = new Function("esc", `${js.slice(js.indexOf("function toolRuns("), js.indexOf("function pinSession("))}; return toolRuns;`)((x: string) => x) as (t: string[]) => string;
 		const html = runs(["Bash", "Bash", "Bash", "Edit page.ts", "Bash"]);
 		expect(html.match(/class="tool"/g)).toHaveLength(3);
 		expect(html).toContain("\u00d73");
+	});
+});
+
+describe("choices an agent offers", () => {
+	const wrap = (extra: object = {}) =>
+		line({ type: "assistant", timestamp: "2026-11-01T12:00:00Z", message: { content: [{ type: "text", text: "Done." }, { type: "tool_use", id: "w1", name: "mcp__ccd_turn__wrap_up", input: { recap: "r", ask: "Release it?", actions: [{ label: "Yes, release" }, { label: "Not now" }], ...extra } }] } });
+	const result = (id: string) => line({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: id, content: "ok" }] } });
+
+	it("reads the buttons from the next-step box, and keeps them after the closing message", () => {
+		const closing = line({ type: "assistant", message: { content: [{ type: "text", text: "Here is the summary." }] } });
+		const s = parseSession("o1", [ask("go"), wrap(), result("w1"), closing], now);
+		expect(s?.awaiting).toBe(true);
+		const last = s?.feed.at(-1);
+		expect(last?.text).toBe("Done.\n\nHere is the summary.");
+		expect(last?.options).toEqual({ recap: "r", ask: "Release it?", labels: ["Yes, release", "Not now"] });
+	});
+
+	it("reads an AskUserQuestion, and drops the buttons once it is answered", () => {
+		const q = line({ type: "assistant", message: { content: [{ type: "tool_use", id: "q1", name: "AskUserQuestion", input: { questions: [{ question: "Which name?", options: [{ label: "Dibs", description: "x" }, { label: "Lane" }] }] } }] } });
+		const open = parseSession("o2", [ask("go"), q], now);
+		expect(open?.feed.at(-1)?.options).toEqual({ ask: "Which name?", labels: ["Dibs", "Lane"] });
+		const answered = parseSession("o2", [ask("go"), q, result("q1")], now);
+		expect(answered?.awaiting).toBe(false);
+		expect(answered?.feed.at(-1)?.options).toBeUndefined();
+	});
+
+	it("drops them when you type an answer, or the agent carries on working", () => {
+		const typed = parseSession("o3", [ask("go"), wrap(), result("w1"), line({ type: "user", message: { content: "Yes, release" } })], now);
+		expect(typed?.awaiting).toBe(false);
+		expect(typed?.feed.some((f) => f.options)).toBe(false);
+		const worked = line({ type: "assistant", message: { content: [{ type: "tool_use", id: "b1", name: "Bash", input: {} }] } });
+		expect(parseSession("o4", [ask("go"), wrap(), result("w1"), worked], now)?.awaiting).toBe(false);
+	});
+
+	it("lets you answer a waiting session at once, but still not interrupt one that is busy", async () => {
+		const J = { "content-type": "application/json" };
+		const waiting = parseSession("w1", [ask("go"), wrap(), result("w1")], Date.now() - 2_000);
+		const busy = parseSession("w2", [ask("go")], Date.now() - 2_000);
+		const app = createApp(() => [waiting && { ...waiting, viaApp: true }, busy && { ...busy, viaApp: true }].filter((x) => x !== undefined) as never, async () => {});
+		const send = (id: string) => app.request("/api/send", { method: "POST", headers: J, body: JSON.stringify({ id, text: "Yes, release" }) });
+		expect((await send("w1")).status).toBe(202);
+		expect((await send("w2")).status).toBe(409);
+	});
+
+	it("shows the buttons in the page, answers with a click or Cmd+Enter, scrolls after 5 seconds without stealing your place, and drags the window", async () => {
+		const { PAGE } = await import("../src/page");
+		const js = PAGE.split("<script>")[1].split("</script>")[0];
+		expect(() => new Function(js)).not.toThrow();
+		for (const part of ["function optsHtml(", "function answer(", 'data-opt="', ".obtn.first", "function armScroll(", "feedHover", "setTimeout(function tick()", 'id="newpill"', ".newpill.on", "messageHandlers.drag", "separate copy"]) expect(PAGE).toContain(part);
+	});
+});
+
+describe("a whole turn's text", () => {
+	it("keeps every text block of an agent turn, not only the last one", () => {
+		const a = line({ type: "assistant", message: { content: [{ type: "text", text: "First I looked." }, { type: "tool_use", id: "x", name: "Bash", input: {} }] } });
+		const b = line({ type: "assistant", message: { content: [{ type: "text", text: "Then I fixed it." }] } });
+		const s = parseSession("t9", [ask("go"), a, line({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "x", content: "" }] } }), b], now);
+		expect(s?.feed.at(-1)?.text).toBe("First I looked.\n\nThen I fixed it.");
 	});
 });
