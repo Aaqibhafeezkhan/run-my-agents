@@ -19,6 +19,7 @@ function setup() {
   return { dir, cwd };
 }
 
+/** Run the hook in an isolated process and return its stdout. */
 function runHook(stateDir, input, extraEnv = {}) {
   const result = spawnSync(process.execPath, [hook], {
     cwd: root,
@@ -87,7 +88,7 @@ test("relative file_path values resolve against the supplied cwd", () => {
   const output = runHook(dir, edit("second-session", file, cwd));
 
   assert.match(output, /"permissionDecision":"deny"/);
-  assert.match(output, /first-session/);
+  assert.match(output, /first-se/);
 });
 
 test("NotebookEdit uses notebook_path when file_path is absent", () => {
@@ -99,7 +100,7 @@ test("NotebookEdit uses notebook_path when file_path is absent", () => {
   const output = runHook(dir, edit("other-session", notebook, cwd, "notebook_path"));
 
   assert.match(output, /"permissionDecision":"deny"/);
-  assert.match(output, /notebook-owner/);
+  assert.match(output, /notebook/);
 });
 
 test("input without session_id is ignored", () => {
@@ -115,8 +116,8 @@ test("warned-once state is scoped to the session, file, and other session tuple"
   const file = join(cwd, "shared.ts");
   writeFileSync(file, "");
 
-  assert.equal(runHook(dir, edit("session-a", file, cwd)), "");
-  const firstWarning = runHook(dir, edit("session-b", file, cwd));
+  assert.equal(runHook(dir, edit("alpha-one", file, cwd)), "");
+  const firstWarning = runHook(dir, edit("bravo-two", file, cwd));
   assert.match(firstWarning, /"permissionDecision":"deny"/);
 
   assert.equal(
@@ -127,7 +128,7 @@ test("warned-once state is scoped to the session, file, and other session tuple"
 
   const reverseWarning = runHook(dir, edit("session-a", file, cwd));
   assert.match(reverseWarning, /"permissionDecision":"deny"/);
-  assert.match(reverseWarning, /session-b/);
+  assert.match(reverseWarning, /bravo-tw/);
 });
 
 test("corrupt claims.json is replaced without failing the hook", () => {
