@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { afterEach, test } from "node:test";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -107,11 +107,7 @@ test("input without session_id is ignored", () => {
   const output = runHook(dir, { cwd, tool_input: { file_path: "ignored.ts" } });
 
   assert.equal(output, "");
-  assert.equal(
-    readFileSync(join(dir, "claims.json"), "utf8"),
-    "",
-    "missing session_id must not create claim state",
-  );
+  assert.equal(existsSync(join(dir, "claims.json")), false);
 });
 
 test("warned-once state is scoped to the session, file, and other session tuple", () => {
