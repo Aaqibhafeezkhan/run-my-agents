@@ -2,13 +2,16 @@
 // its tokens against the limit, and skills for its job. Local only; started by `flisk up` or the Mac app.
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, statSync, writeFileSync } from "node:fs";
-import { basename, join, resolve, sep } from "node:path";
+import type { Pr } from "./desktop";
+import { mkdirSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { Hono } from "hono";
 import { lowerModel, readLimits, setProjectModel, writeLimits } from "../../../../hooks/limits.mjs";
 import { AGENTS } from "../../web/src/avatars";
 import { PAGE } from "./page";
-import { addPending, applyRoles, applyTune, dataDir, EFFORTS, ROLES, setPin, setRole, setTune, TUNE_MODELS } from "./prefs";
+import { GEIST, GEIST_MONO } from "./fonts.generated";
+import { addPending, applyHidden, applyRoles, applyTune, dataDir, EFFORTS, forgetSession, readOrder, ROLES, setHidden, setOrder, setPin, setRole, setTune, TUNE_MODELS } from "./prefs";
 import { findClashes, guessRole, readAllSessions, type Session } from "./sessions";
 import SKILLS from "./skills.json";
 
@@ -59,6 +62,12 @@ export function safeName(name: string): string {
 	return base || "file";
 }
 
+/** The page's font, Geist and Geist Mono by Vercel (SIL Open Font License), served from the app so it works offline. */
+const FONTS = new Map<string, Buffer>([
+	["geist.woff2", Buffer.from(GEIST, "base64")],
+	["geist-mono.woff2", Buffer.from(GEIST_MONO, "base64")],
+]);
+
 /** Sessions with a message on its way, so a second send waits for the first reply. */
 const sending = new Set<string>();
 const PROMPT_LIMIT = 20_000;
@@ -104,6 +113,54 @@ export function openIn(target: string, cwd: string, run = spawn): Promise<boolea
 	});
 }
 
+const prCache = new Map<string, { at: number; prs: Pr[] }>();
+
+/** The pull requests GitHub has for a session's branch, asked of `gh` in the session's folder (cached for a minute). */
+export async function ghPrs(s: Session, run = spawn): Promise<Pr[]> {
+	const branch = s.branch;
+	if (!branch || !/^\w[\w./-]{0,199}$/.test(branch) || branch === "main" || branch === "master" || !s.cwd) return [];
+	const key = `${s.cwd}\u0000${branch}`;
+	const hit = prCache.get(key);
+	if (hit && Date.now() - hit.at < 60_000) return hit.prs;
+	const prs = await new Promise<Pr[]>((done) => {
+		let out = "";
+		let child: ReturnType<typeof spawn>;
+		try {
+			child = run("gh", ["pr", "list", "--head", branch, "--state", "all", "--limit", "6", "--json", "number,title,state,url,isDraft"], { cwd: s.cwd, stdio: ["ignore", "pipe", "ignore"] });
+		} catch {
+			return done([]);
+		}
+		const timer = setTimeout(() => {
+			child.kill();
+			done([]);
+		}, 6000);
+		child.stdout?.on("data", (d) => {
+			out += d;
+		});
+		child.on("error", () => {
+			clearTimeout(timer);
+			done([]);
+		});
+		child.on("close", () => {
+			clearTimeout(timer);
+			try {
+				const rows = JSON.parse(out) as { number: number; title: string; state: string; url: string; isDraft?: boolean }[];
+				done(
+					rows.flatMap((r) =>
+						Number.isInteger(r.number) && /^https:\/\//.test(String(r.url))
+							? [{ number: r.number, title: String(r.title ?? ""), state: String(r.state ?? "").toUpperCase(), url: r.url, repo: /github\.com\/([^/]+\/[^/]+)\/pull\//.exec(r.url)?.[1] ?? "", branch, draft: r.isDraft === true }]
+							: [],
+					),
+				);
+			} catch {
+				done([]);
+			}
+		});
+	});
+	prCache.set(key, { at: Date.now(), prs });
+	return prs;
+}
+
 /** Which of the two coding agents the board can start are installed. */
 export const installed = () => ({ claude: !!Bun.which("claude"), codex: !!Bun.which("codex") });
 
@@ -136,13 +193,14 @@ export function startNewSession(n: NewSession, run = spawn): Promise<void> {
 const BUILD = Bun.hash(PAGE).toString(36);
 
 export function createApp(
-	read = () => applyTune(applyRoles(readAllSessions())),
+	read = () => applyTune(applyRoles(applyHidden(readAllSessions()))),
 	send = sendToSession,
-	deps: { start?: typeof startNewSession; which?: typeof installed; open?: typeof openIn } = {},
+	deps: { start?: typeof startNewSession; which?: typeof installed; open?: typeof openIn; prs?: typeof ghPrs } = {},
 ) {
 	const start = deps.start ?? startNewSession;
 	const which = deps.which ?? installed;
 	const open = deps.open ?? openIn;
+	const prsFor = deps.prs ?? ghPrs;
 	const app = new Hono();
 	app.use("*", async (c, next) => {
 		if (!LOCAL_HOST.test(c.req.header("host") ?? new URL(c.req.url).host)) return c.text("Open the board at http://localhost.", 403);
@@ -154,7 +212,7 @@ export function createApp(
 		const sessions = read();
 		const limits = readLimits();
 		return c.json({
-			sessions: sessions.map((s) => ({
+			sessions: sessions.map(({ file: _file, ...s }) => ({
 				...s,
 				face: faceOf(s),
 				lower: s.agent === "claude" ? lowerModel(s.model) : null,
@@ -163,6 +221,7 @@ export function createApp(
 			})),
 			clashes: findClashes(sessions),
 			limits,
+			order: readOrder(),
 			build: BUILD,
 		});
 	});
@@ -189,6 +248,9 @@ export function createApp(
 		const s = read().find((x) => x.id === id);
 		if (!s) return c.json({ error: "That session is gone." }, 404);
 		if (sending.has(s.id)) return c.json({ error: `${s.role} is still answering your last message.` }, 409);
+		// A message from here starts a second copy of the session. If the Claude app is working in it right now, the
+		// two would run on the same conversation at once, so wait for it to settle.
+		if (s.viaApp === true && Date.now() - s.updatedAt < 20_000) return c.json({ error: `${s.role} is working in the Claude app right now. Wait for it to finish, or message it there.` }, 409);
 		// Only files this board saved for this session can be attached, however the request names them.
 		const dir = join(dataDir(), "uploads", s.id);
 		const attached = (Array.isArray(files) ? files : []).slice(0, 10).map(String).filter((f) => {
@@ -250,6 +312,59 @@ export function createApp(
 		writeFileSync(path, bytes, { mode: 0o600 });
 		return c.json({ path, name, size: bytes.length });
 	});
+	app.get("/fonts/:file", (c) => {
+		const font = FONTS.get(c.req.param("file"));
+		if (!font) return c.notFound();
+		return c.body(font as unknown as Uint8Array<ArrayBuffer>, 200, { "content-type": "font/woff2", "cache-control": "public, max-age=31536000, immutable" });
+	});
+	// The order you dragged your agents into.
+	app.post("/api/order", async (c) => {
+		if (!sameOrigin(c)) return c.json({ error: "Send JSON from the board." }, 403);
+		const { ids } = (await c.req.json().catch(() => ({}))) as { ids?: unknown };
+		if (!Array.isArray(ids)) return c.json({ error: "Send a list of session ids." }, 400);
+		setOrder(ids.map(String));
+		return c.json({ ok: true });
+	});
+	// The pull requests for a session's branch: the ones the Claude app attached, plus what GitHub has for the branch.
+	app.get("/api/prs", async (c) => {
+		const s = read().find((x) => x.id === c.req.query("id"));
+		if (!s) return c.json({ error: "That session is gone." }, 404);
+		const byUrl = new Map<string, Pr>();
+		for (const p of [...(s.prs ?? []), ...(await prsFor(s))]) {
+			const old = byUrl.get(p.url);
+			byUrl.set(p.url, old ? { ...old, ...Object.fromEntries(Object.entries(p).filter(([, v]) => v !== "")) } : p);
+		}
+		return c.json({ branch: s.branch, prs: [...byUrl.values()].sort((a, b) => b.number - a.number) });
+	});
+	// Close: hides a session from the list (it stays under Closed). Nothing is deleted.
+	app.post("/api/hide", async (c) => {
+		if (!sameOrigin(c)) return c.json({ error: "Send JSON from the board." }, 403);
+		const { id, hidden } = (await c.req.json().catch(() => ({}))) as { id?: string; hidden?: boolean };
+		if (!id || !/^[\w-]{1,128}$/.test(id) || typeof hidden !== "boolean") return c.json({ error: "Unknown session." }, 400);
+		setHidden(id, hidden);
+		return c.json({ id, hidden });
+	});
+	// Delete: removes the session's transcript for good. Only for sessions the Claude app does not list (the app would
+	// be left with a session it cannot open), never one that is working, and only a file inside the agent's own folder.
+	app.post("/api/delete", async (c) => {
+		if (!sameOrigin(c)) return c.json({ error: "Send JSON from the board." }, 403);
+		const { id } = (await c.req.json().catch(() => ({}))) as { id?: string };
+		const s = read().find((x) => x.id === id);
+		if (!s) return c.json({ error: "That session is gone." }, 404);
+		if (s.viaApp === true) return c.json({ error: "This session is in the Claude app. Delete it there." }, 400);
+		if (Date.now() - s.updatedAt < 60_000) return c.json({ error: `${s.role} is working right now. Try again in a minute.` }, 409);
+		const base = resolve(s.agent === "codex" ? process.env.CODEX_SESSIONS_DIR || join(homedir(), ".codex", "sessions") : process.env.CLAUDE_PROJECTS_DIR || join(homedir(), ".claude", "projects"));
+		const file = s.file ? resolve(s.file) : "";
+		if (!file.endsWith(".jsonl") || !file.startsWith(base + sep)) return c.json({ error: "Can't find that session's file." }, 400);
+		try {
+			unlinkSync(file);
+		} catch {
+			return c.json({ error: "Could not delete that session's file." }, 500);
+		}
+		if (s.agent === "claude") rmSync(join(dirname(file), s.id), { recursive: true, force: true });
+		forgetSession(s.id);
+		return c.json({ deleted: true });
+	});
 	// Pins in the board. The Claude app's own pins show too; unpinning here hides one on this board only.
 	app.post("/api/pin", async (c) => {
 		if (!sameOrigin(c)) return c.json({ error: "Send JSON from the board." }, 403);
@@ -306,7 +421,13 @@ export function createApp(
 			if (id) setRole(id, b.role);
 			else addPending({ agent: b.agent, cwd, prefix: (text.split("\n")[0] ?? "").slice(0, 40), role: b.role });
 		}
-		start({ agent: b.agent, cwd, text, model, effort, id }).catch((e) => console.error("start failed:", e));
+		// Its first turn can take minutes: until it ends, a follow-up would start a second copy of the same session.
+		if (id) sending.add(id);
+		start({ agent: b.agent, cwd, text, model, effort, id })
+			.catch((e) => console.error("start failed:", e))
+			.finally(() => {
+				if (id) sending.delete(id);
+			});
 		return c.json({ started: true, id }, 202);
 	});
 	app.get("/", (c) => c.html(PAGE));

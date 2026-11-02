@@ -10,6 +10,17 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
 
+/** A pull request the Claude app attached to a session. */
+export interface Pr {
+	number: number;
+	title: string;
+	state: string;
+	url: string;
+	repo: string;
+	branch: string;
+	draft: boolean;
+}
+
 export interface DesktopMeta {
 	title: string;
 	pinned: boolean;
@@ -17,6 +28,9 @@ export interface DesktopMeta {
 	effort: string;
 	/** When the session last did anything, from the app. */
 	at: number;
+	prs: Pr[];
+	/** Branches the session wrote to. */
+	branches: string[];
 }
 
 function defaultRoot(): string {
@@ -28,7 +42,23 @@ function defaultRoot(): string {
 }
 
 /** One small record per session file, kept until the file changes, because there are hundreds and the board polls. */
-const cache = new Map<string, { mtime: number; rec: { cli: string; local: string; title: string; archived: boolean; effort: string; at: number } | null }>();
+const cache = new Map<string, { mtime: number; rec: { cli: string; local: string; title: string; archived: boolean; effort: string; at: number; prs: Pr[]; branches: string[] } | null }>();
+
+function readPrs(raw: unknown): Pr[] {
+	if (!Array.isArray(raw)) return [];
+	return raw.flatMap((p: { prNumber?: unknown; url?: unknown; state?: unknown; repo?: unknown; branch?: unknown }) => {
+		const number = Number(p?.prNumber);
+		const url = String(p?.url ?? "");
+		if (!Number.isInteger(number) || number < 1 || !/^https:\/\/[^\s"<>]+$/.test(url)) return [];
+		return [{ number, title: "", state: String(p?.state ?? "").toUpperCase(), url, repo: String(p?.repo ?? ""), branch: String(p?.branch ?? ""), draft: false }];
+	});
+}
+
+/** The app lists branches as "<folder>\u0000<branch>". */
+function readBranches(raw: unknown): string[] {
+	if (!Array.isArray(raw)) return [];
+	return [...new Set(raw.map((x) => String(x).split("\u0000")[1] ?? "").filter(Boolean))];
+}
 
 function list(dir: string): string[] {
 	try {
@@ -66,12 +96,12 @@ export function readDesktopMeta(root = defaultRoot()): Map<string, DesktopMeta> 
 					try {
 						const j = JSON.parse(readFileSync(path, "utf8"));
 						if (typeof j.cliSessionId === "string")
-							rec = { cli: j.cliSessionId, local: String(j.sessionId ?? ""), title: String(j.title ?? ""), archived: j.isArchived === true, effort: typeof j.effort === "string" ? j.effort : "", at: Number(j.lastActivityAt) || 0 };
+							rec = { cli: j.cliSessionId, local: String(j.sessionId ?? ""), title: String(j.title ?? ""), archived: j.isArchived === true, effort: typeof j.effort === "string" ? j.effort : "", at: Number(j.lastActivityAt) || 0, prs: readPrs(j.prs), branches: readBranches(j.writtenBranches) };
 					} catch {}
 					hit = { mtime, rec };
 					cache.set(path, hit);
 				}
-				if (hit.rec) out.set(hit.rec.cli, { title: hit.rec.title, pinned: starred.has(hit.rec.local), archived: hit.rec.archived, effort: hit.rec.effort, at: hit.rec.at });
+				if (hit.rec) out.set(hit.rec.cli, { title: hit.rec.title, pinned: starred.has(hit.rec.local), archived: hit.rec.archived, effort: hit.rec.effort, at: hit.rec.at, prs: hit.rec.prs, branches: hit.rec.branches });
 			}
 	return out;
 }

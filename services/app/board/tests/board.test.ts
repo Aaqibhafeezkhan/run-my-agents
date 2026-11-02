@@ -213,8 +213,8 @@ describe("claude desktop pins and names", () => {
 		writeFileSync(join(dir, "local_b.json"), JSON.stringify({ sessionId: "local_b", cliSessionId: "cli-b", title: "Ghostfolio", isArchived: true }));
 		writeFileSync(join(dir, "local_c.json"), "not json");
 		const meta = readDesktopMeta(root);
-		expect(meta.get("cli-a")).toEqual({ title: "Flisk 5-second YouTube Short", pinned: true, archived: false, effort: "", at: 0 });
-		expect(meta.get("cli-b")).toEqual({ title: "Ghostfolio", pinned: false, archived: true, effort: "", at: 0 });
+		expect(meta.get("cli-a")).toEqual({ title: "Flisk 5-second YouTube Short", pinned: true, archived: false, effort: "", at: 0, prs: [], branches: [] });
+		expect(meta.get("cli-b")).toEqual({ title: "Ghostfolio", pinned: false, archived: true, effort: "", at: 0, prs: [], branches: [] });
 		expect(meta.size).toBe(2);
 	});
 
@@ -333,8 +333,8 @@ describe("new session page", () => {
 describe("sessions the Claude app does not list", () => {
 	it("goes in its own group, so the others match the app", async () => {
 		const { PAGE } = await import("../src/page");
-		expect(PAGE).toContain('["Not in the Claude app",s=>!s.pinned&&s.viaApp===false]');
-		expect(PAGE).toContain('["Working",s=>!s.pinned&&s.viaApp!==false');
+		expect(PAGE).toContain('["Not in the Claude app",s=>!s.hidden&&!s.pinned&&s.viaApp===false]');
+		expect(PAGE).toContain('["Working",s=>!s.hidden&&!s.pinned&&s.viaApp!==false');
 	});
 });
 
@@ -602,5 +602,315 @@ describe("file upload", () => {
 		const js = PAGE.split("<script>")[1].split("</script>")[0];
 		expect(() => new Function(js)).not.toThrow();
 		for (const part of ['data-act="attach"', "function attachFiles(", 'id="drop"', "x-run-my-agents", ".clip:hover", ".att:hover", "--fit"]) expect(PAGE).toContain(part);
+	});
+});
+
+describe("close and delete", () => {
+	const J = { "content-type": "application/json" };
+	const post = (app: ReturnType<typeof createApp>, path: string, body: object) =>
+		app.request(path, { method: "POST", headers: J, body: JSON.stringify(body) });
+	const setup = async () => {
+		const { mkdtempSync, mkdirSync, writeFileSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		const root = mkdtempSync(join(tmpdir(), "rma-del-"));
+		process.env.CLAUDE_PROJECTS_DIR = join(root, "projects");
+		process.env.RUN_MY_AGENTS_DIR = join(root, "data");
+		mkdirSync(join(root, "projects", "p"), { recursive: true });
+		const file = join(root, "projects", "p", "d1.jsonl");
+		writeFileSync(file, "x");
+		return { root, file };
+	};
+	const old = (extra: object) => {
+		const s = parseSession("d1", [ask("hi")], Date.now() - 600_000);
+		return s ? [{ ...s, ...extra }] : [];
+	};
+
+	it("closes a session without deleting anything, and reopens it", async () => {
+		const { existsSync } = await import("node:fs");
+		const { file } = await setup();
+		const { applyHidden } = await import("../src/prefs");
+		const app = createApp(() => applyHidden(old({ file, viaApp: false })));
+		expect((await post(app, "/api/hide", { id: "d1", hidden: true })).status).toBe(200);
+		expect((await (await app.request("/api/sessions")).json()).sessions[0].hidden).toBe(true);
+		expect(existsSync(file)).toBe(true);
+		await post(app, "/api/hide", { id: "d1", hidden: false });
+		expect((await (await app.request("/api/sessions")).json()).sessions[0].hidden).toBeUndefined();
+		expect((await post(app, "/api/hide", { id: "../x", hidden: true })).status).toBe(400);
+		expect((await post(app, "/api/hide", { id: "d1" })).status).toBe(400);
+	});
+
+	it("deletes a board or terminal session's transcript and everything the board kept about it", async () => {
+		const { existsSync, mkdirSync, writeFileSync } = await import("node:fs");
+		const { join } = await import("node:path");
+		const { file, root } = await setup();
+		mkdirSync(join(root, "data", "uploads", "d1"), { recursive: true });
+		writeFileSync(join(root, "data", "uploads", "d1", "a.png"), "x");
+		const { setRole, setPin, readPins } = await import("../src/prefs");
+		setRole("d1", "Video");
+		setPin("d1", true);
+		const app = createApp(() => old({ file, viaApp: false }));
+		expect(JSON.stringify(await (await app.request("/api/sessions")).json())).not.toContain(file);
+		const res = await post(app, "/api/delete", { id: "d1" });
+		expect(res.status).toBe(200);
+		expect(existsSync(file)).toBe(false);
+		expect(existsSync(join(root, "data", "uploads", "d1"))).toBe(false);
+		expect(readPins().pinned).toEqual([]);
+	});
+
+	it("refuses to delete a Claude app session, a working one, a file outside the agent's folder, or from another site", async () => {
+		const { existsSync } = await import("node:fs");
+		const { file, root } = await setup();
+		expect((await post(createApp(() => old({ file, viaApp: true })), "/api/delete", { id: "d1" })).status).toBe(400);
+		const busy = parseSession("d1", [ask("hi")], Date.now());
+		expect((await post(createApp(() => (busy ? [{ ...busy, file, viaApp: false }] : [])), "/api/delete", { id: "d1" })).status).toBe(409);
+		expect((await post(createApp(() => old({ file: "/etc/hosts", viaApp: false })), "/api/delete", { id: "d1" })).status).toBe(400);
+		expect((await post(createApp(() => old({ file: `${root}/projects/../outside.jsonl`, viaApp: false })), "/api/delete", { id: "d1" })).status).toBe(400);
+		expect((await post(createApp(() => []), "/api/delete", { id: "nope" })).status).toBe(404);
+		expect((await createApp(() => old({ file, viaApp: false })).request("/api/delete", { method: "POST", body: "id=d1" })).status).toBe(403);
+		expect(existsSync(file)).toBe(true);
+	});
+});
+
+describe("formatted replies, close and delete in the panel, smaller gauges", () => {
+	it("shows replies as the Claude app does, using the tested renderer, and never cuts them off at three lines", async () => {
+		const { PAGE } = await import("../src/page");
+		const js = PAGE.split("<script>")[1].split("</script>")[0];
+		expect(() => new Function(js)).not.toThrow();
+		// the embedded renderer is the real one
+		const run = new Function(`${js.slice(0, js.indexOf("const SH="))}; return renderMarkdown("**bold** and \`code\`");`);
+		expect(run()).toBe("<p><strong>bold</strong> and <code>code</code></p>");
+		for (const part of ['class="rich', ".rich pre", ".rich table", ".cpb", 'data-copycode', ".msg .rich.long"]) expect(PAGE).toContain(part);
+		expect(PAGE).not.toContain('(m.text?"<p>"+esc(m.text)+"</p>":"")');
+	});
+
+	it("has Close and Delete in the right-click panel, a Closed group, and a smaller panel", async () => {
+		const { PAGE } = await import("../src/page");
+		for (const part of ['data-close="1"', 'data-del="1"', 'class="dz2"', '["Closed",s=>s.hidden]', "fold={Closed:true}", ".tl2.red.arm", "width:min(288px,94vw)"]) expect(PAGE).toContain(part);
+	});
+});
+
+describe("chat layout, bigger text and avatar motion", () => {
+	it("puts your messages on the left and the agent's on the right, with small author names", async () => {
+		const { PAGE } = await import("../src/page");
+		for (const part of ['"from-me":"from-ag"', 'class="bub"', 'class="who"', ".msg.from-me{justify-content:flex-start}", ".msg.from-ag{justify-content:flex-end}", ".who{display:flex", ".rich{font-size:14px}", "font:14px/20px var(--body)"]) expect(PAGE).toContain(part);
+		const js = PAGE.split("<script>")[1].split("</script>")[0];
+		expect(() => new Function(js)).not.toThrow();
+	});
+
+	it("wiggles an agent that has spent many tokens and shakes it faster the more it spends, with or without a limit", async () => {
+		const { PAGE } = await import("../src/page");
+		const js = PAGE.split("<script>")[1].split("</script>")[0];
+		const src = js.slice(js.indexOf("function motion("), js.indexOf("const hm="));
+		const motion = new Function("L", `${src}; return motion;`) as (L: object) => (s: object) => { low: boolean; wig: boolean; style: string };
+		const at = (used: number, limit = 0) => motion({ sessionTokens: limit })({ id: "abc", updatedAt: Date.now(), tokens: { used, cached: 0 } });
+		expect(at(100_000)).toMatchObject({ low: false, wig: false });
+		expect(at(800_000)).toMatchObject({ low: false, wig: true });
+		expect(at(1_500_000)).toMatchObject({ low: true, wig: false });
+		const shake = (r: { style: string }) => Number(/--shake:([\d.]+)s/.exec(r.style)?.[1]);
+		expect(shake(at(1_500_000))).toBeGreaterThan(shake(at(2_400_000)));
+		expect(shake(at(40_000_000))).toBe(0.4);
+		// with a limit set, the same tokens count against that limit instead
+		expect(at(800_000, 1_000_000)).toMatchObject({ low: true });
+		expect(at(800_000, 10_000_000)).toMatchObject({ low: false, wig: false });
+	});
+
+	it("does not start a second copy of a session the Claude app is working in, or one the board is still running", async () => {
+		const J = { "content-type": "application/json" };
+		const post = (app: ReturnType<typeof createApp>, path: string, body: object) => app.request(path, { method: "POST", headers: J, body: JSON.stringify(body) });
+		const fresh = parseSession("x1", [ask("hi")], Date.now() - 2_000);
+		const stale = parseSession("x2", [ask("hi")], Date.now() - 600_000);
+		const app = createApp(() => [fresh && { ...fresh, viaApp: true }, stale && { ...stale, viaApp: true }, fresh && { ...fresh, id: "x3", viaApp: false }].filter((x) => x !== undefined) as never, async () => {});
+		expect((await post(app, "/api/send", { id: "x1", text: "go" })).status).toBe(409);
+		expect((await post(app, "/api/send", { id: "x2", text: "go" })).status).toBe(202);
+		expect((await post(app, "/api/send", { id: "x3", text: "go" })).status).toBe(202);
+		// a session the board has just started is busy until its first turn ends
+		const { mkdtempSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const dir = mkdtempSync(`${tmpdir()}/rma-busy-`);
+		let finish = () => {};
+		let started = "";
+		const list: object[] = [];
+		const app2 = createApp(() => list as never, async () => {}, {
+			which: () => ({ claude: true, codex: false }),
+			start: async (n) => {
+				started = n.id ?? "";
+				await new Promise<void>((r) => {
+					finish = r;
+				});
+			},
+		});
+		expect((await post(app2, "/api/new", { agent: "claude", cwd: dir, text: "go" })).status).toBe(202);
+		const s = parseSession(started, [ask("go")], Date.now() - 600_000);
+		if (s) list.push(s);
+		expect((await post(app2, "/api/send", { id: started, text: "more" })).status).toBe(409);
+		finish();
+		await Bun.sleep(5);
+		expect((await post(app2, "/api/send", { id: started, text: "more" })).status).toBe(202);
+	});
+});
+
+describe("class names", () => {
+	it("does not use the model tag's class (md) for the formatted reply text", async () => {
+		const { PAGE } = await import("../src/page");
+		expect(PAGE).toContain("function mtag(");
+		expect(PAGE).toContain('<span class="md" data-mpick=');
+		expect(PAGE).not.toMatch(/\.md (p|code|pre|table|a|ul|li)\b/);
+		expect(PAGE).not.toContain('class="md\'+(m.text.length');
+	});
+});
+
+describe("Geist font, order and drag and drop", () => {
+	it("serves Geist and Geist Mono from the app, cached for a year, and nothing else under /fonts", async () => {
+		const app = createApp(() => []);
+		for (const f of ["geist.woff2", "geist-mono.woff2"]) {
+			const res = await app.request(`/fonts/${f}`);
+			expect(res.status).toBe(200);
+			expect(res.headers.get("content-type")).toBe("font/woff2");
+			expect(res.headers.get("cache-control")).toContain("immutable");
+			const bytes = new Uint8Array(await res.arrayBuffer());
+			expect([...bytes.slice(0, 4)]).toEqual([0x77, 0x4f, 0x46, 0x32]); // "wOF2"
+		}
+		expect((await app.request("/fonts/../index.ts")).status).toBe(404);
+		expect((await app.request("/fonts/evil.woff2")).status).toBe(404);
+		const { PAGE } = await import("../src/page");
+		expect(PAGE).toContain('font-family:"Geist"');
+		expect(PAGE).toContain('--body:"Geist"');
+		expect(PAGE).toContain('--mono:"Geist Mono"');
+		expect(PAGE).not.toContain("Satoshi");
+	});
+
+	it("saves the order you dragged your agents into, and hands it back with the sessions", async () => {
+		const { mkdtempSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		process.env.RUN_MY_AGENTS_DIR = mkdtempSync(join(tmpdir(), "rma-order-"));
+		const app = createApp(() => []);
+		const post = (body: unknown) => app.request("/api/order", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+		expect((await post({ ids: ["b", "a", "b", "../x", "c"] })).status).toBe(200);
+		expect((await (await app.request("/api/sessions")).json()).order).toEqual(["b", "a", "c"]);
+		expect((await post({ ids: "nope" })).status).toBe(400);
+		expect((await app.request("/api/order", { method: "POST", body: "ids=a" })).status).toBe(403);
+	});
+
+	it("can drag an agent: rows are draggable, drops pin, unpin, close and reopen, and every move slides", async () => {
+		const { PAGE } = await import("../src/page");
+		const js = PAGE.split("<script>")[1].split("</script>")[0];
+		expect(() => new Function(js)).not.toThrow();
+		for (const part of ['draggable="true"', 'addEventListener("dragstart"', 'addEventListener("drop"', "function dropAgent(", "function flip(", "function ordSort(", ".it.drop-before::before", ".it.dragging", ".it.moved", "phold"]) expect(PAGE).toContain(part);
+		expect(PAGE).toContain("if(dragId||");
+	});
+});
+
+describe("class names, again", () => {
+	it("keeps the chat row classes apart from the small CLAUDE and model tags (ag, md)", async () => {
+		const { PAGE } = await import("../src/page");
+		expect(PAGE).not.toMatch(/\.msg\.(me|ag)\b/);
+		expect(PAGE).toContain('<span class="ag \'+s.agent');
+	});
+});
+
+describe("pull requests on the branch chip", () => {
+	it("reads the pull requests and branches the Claude app keeps for a session", async () => {
+		const { mkdtempSync, mkdirSync, writeFileSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		const { readDesktopMeta } = await import("../src/desktop");
+		const root = mkdtempSync(join(tmpdir(), "rma-prs-"));
+		const dir = join(root, "claude-code-sessions", "a", "b");
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(
+			join(dir, "local_p.json"),
+			JSON.stringify({
+				sessionId: "local_p",
+				cliSessionId: "cli-p",
+				title: "x",
+				prs: [
+					{ prNumber: 3047, repo: "flisk-sh/flisk", url: "https://github.com/flisk-sh/flisk/pull/3047", branch: "feat/x", state: "merged" },
+					{ prNumber: 9, url: "javascript:alert(1)" },
+					{ prNumber: "x", url: "https://github.com/a/b/pull/1" },
+				],
+				writtenBranches: ["/repo\u0000fix/a", "/repo\u0000fix/a", "/repo\u0000main"],
+			}),
+		);
+		const m = readDesktopMeta(root).get("cli-p");
+		expect(m?.prs).toEqual([{ number: 3047, title: "", state: "MERGED", url: "https://github.com/flisk-sh/flisk/pull/3047", repo: "flisk-sh/flisk", branch: "feat/x", draft: false }]);
+		expect(m?.branches).toEqual(["fix/a", "main"]);
+	});
+
+	it("merges the app's pull requests with GitHub's for the branch, newest first, without duplicates", async () => {
+		const s = parseSession("pr1", [line({ type: "user", cwd: "/repo", gitBranch: "feat/x", message: { content: "hi" } })], now);
+		const withPrs = s && { ...s, prs: [{ number: 5, title: "", state: "OPEN", url: "https://github.com/o/r/pull/5", repo: "o/r", branch: "feat/x", draft: false }] };
+		const gh = async () => [
+			{ number: 5, title: "Add the thing", state: "MERGED", url: "https://github.com/o/r/pull/5", repo: "o/r", branch: "feat/x", draft: false },
+			{ number: 7, title: "Follow-up", state: "OPEN", url: "https://github.com/o/r/pull/7", repo: "o/r", branch: "feat/x", draft: true },
+		];
+		const app = createApp(() => (withPrs ? [withPrs] : []), undefined, { prs: gh });
+		const out = await (await app.request("/api/prs?id=pr1")).json();
+		expect(out.branch).toBe("feat/x");
+		expect(out.prs.map((p: { number: number }) => p.number)).toEqual([7, 5]);
+		expect(out.prs[1]).toMatchObject({ title: "Add the thing", state: "MERGED" });
+		expect((await app.request("/api/prs?id=nope")).status).toBe(404);
+		// without gh, the app's list still shows
+		const quiet = createApp(() => (withPrs ? [withPrs] : []), undefined, { prs: async () => [] });
+		expect((await (await quiet.request("/api/prs?id=pr1")).json()).prs).toHaveLength(1);
+	});
+
+	it("only asks gh about a real feature branch, and builds the repo from the URL", async () => {
+		const { ghPrs } = await import("../src/index");
+		const calls: string[][] = [];
+		const fake = ((_: string, a: string[]) => {
+			calls.push(a);
+			const child = new (require("node:events").EventEmitter)();
+			child.stdout = new (require("node:events").EventEmitter)();
+			child.kill = () => {};
+			setTimeout(() => {
+				child.stdout.emit("data", JSON.stringify([{ number: 3, title: "T", state: "open", url: "https://github.com/flisk-sh/x/pull/3", isDraft: true }]));
+				child.emit("close", 0);
+			}, 0);
+			return child;
+		}) as never;
+		const base = { id: "g", cwd: "/repo", agent: "claude" } as never;
+		for (const branch of ["main", "master", "", "-rf", "a b", "../x"]) expect(await ghPrs({ ...(base as object), branch } as never, fake)).toEqual([]);
+		expect(calls).toHaveLength(0);
+		const prs = await ghPrs({ ...(base as object), branch: "fix/ok-1" } as never, fake);
+		expect(prs).toEqual([{ number: 3, title: "T", state: "OPEN", url: "https://github.com/flisk-sh/x/pull/3", repo: "flisk-sh/x", branch: "fix/ok-1", draft: true }]);
+		expect(calls[0]).toContain("fix/ok-1");
+	});
+});
+
+describe("model tag switcher, PR hover, chat spacing", () => {
+	it("makes the model tag clickable and shows the model the next board message will use", async () => {
+		const { PAGE } = await import("../src/page");
+		const js = PAGE.split("<script>")[1].split("</script>")[0];
+		expect(() => new Function(js)).not.toThrow();
+		const src = js.slice(js.indexOf("const esc="), js.indexOf("const ago=")) + js.slice(js.indexOf("const TIER="), js.indexOf("function motion("));
+		const mtag = new Function(`${src}; return mtag;`)() as (s: object) => string;
+		const plain = mtag({ id: "a", model: "claude-opus-5-5" });
+		expect(plain).toContain('data-mpick="a"');
+		expect(plain).toContain("OPUS");
+		expect(plain).not.toContain("md nx");
+		const pending = mtag({ id: "a", model: "claude-opus-5-5", tune: { model: "haiku" } });
+		expect(pending).toContain("OPUS");
+		expect(pending).toContain("md nx");
+		expect(pending).toContain("HAIKU");
+		expect(mtag({ id: "a", model: "claude-haiku-5-5", tune: { model: "haiku" } })).not.toContain("md nx");
+		expect(PAGE).toContain("function showModelPick(");
+		expect(PAGE).toContain("e.stopImmediatePropagation()");
+	});
+
+	it("lists pull requests when you hover the branch", async () => {
+		const { PAGE } = await import("../src/page");
+		for (const part of ["data-prs=", "function showPrs(", 'fetch("api/prs?id="', ".prpop{", ".prr:hover", ".prsk{", 'class="prn"']) expect(PAGE).toContain(part);
+	});
+
+	it("shows more chat text: tighter spacing, wider bubbles, smaller tool labels that group repeats, no early cut-off", async () => {
+		const { PAGE } = await import("../src/page");
+		for (const part of [".bub{max-width:94%", ".rich p{margin:0 0 4px}", ".tool{font-size:9px", "function toolRuns(", "m.text.length>4800"]) expect(PAGE).toContain(part);
+		const js = PAGE.split("<script>")[1].split("</script>")[0];
+		const runs = new Function("esc", `${js.slice(js.indexOf("function toolRuns("), js.indexOf("function pinSession("))}; return toolRuns;`)((x: string) => x) as (t: string[]) => string;
+		const html = runs(["Bash", "Bash", "Bash", "Edit page.ts", "Bash"]);
+		expect(html.match(/class="tool"/g)).toHaveLength(3);
+		expect(html).toContain("\u00d73");
 	});
 });

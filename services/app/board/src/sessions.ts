@@ -7,7 +7,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
-import { readDesktopMeta } from "./desktop";
+import { type Pr, readDesktopMeta } from "./desktop";
 import { isPinned, readPins } from "./prefs";
 
 export interface Tokens {
@@ -39,6 +39,14 @@ export interface Session {
 	pinned: boolean;
 	/** True when you chose this session's type, instead of the board guessing it. */
 	roleSet?: boolean;
+	/** Pull requests the Claude app attached to this session. */
+	prs?: Pr[];
+	/** Branches the session wrote to, from the Claude app. */
+	branches?: string[];
+	/** Closed on the board. */
+	hidden?: boolean;
+	/** The transcript file. Only the server uses it; it is never sent to the page. */
+	file?: string;
 	/** The model and effort chosen in the board for this agent. */
 	tune?: { model?: string; effort?: string };
 	/** The effort level the Claude desktop app has for this session. */
@@ -56,7 +64,7 @@ export interface FeedItem {
 	tools: string[];
 }
 
-const FEED_SIZE = 12;
+const FEED_SIZE = 16;
 
 export interface Clash {
 	file: string;
@@ -121,7 +129,7 @@ export function parseSession(id: string, lines: string[], updatedAt: number): Se
 		}
 		if (e.type === "user" && !e.isMeta) {
 			const t = textOf(e.message?.content).trim();
-			if (t && !t.startsWith("<")) s.feed.push({ at, who: "you", text: t.slice(0, 400), tools: [] });
+			if (t && !t.startsWith("<")) s.feed.push({ at, who: "you", text: t.slice(0, 2000), tools: [] });
 		}
 		const u = e.type === "assistant" ? e.message?.usage : undefined;
 		if (u) {
@@ -136,7 +144,7 @@ export function parseSession(id: string, lines: string[], updatedAt: number): Se
 			const item =
 				last?.who === "agent" ? last : { at, who: "agent" as const, text: "", tools: [] as string[] };
 			if (item !== last) s.feed.push(item);
-			if (words) item.text = words.slice(0, 600);
+			if (words) item.text = words.slice(0, 5000);
 			item.at = at;
 			for (const c of e.message.content as { type?: string; name?: string; input?: Record<string, unknown> }[]) {
 				if (c?.type !== "tool_use" || !c.name) continue;
@@ -181,10 +189,10 @@ export function parseCodexSession(lines: string[], updatedAt: number): Session |
 			if (!text || text.startsWith("<")) continue;
 			if (p.role === "user") {
 				if (!s.title) s.title = text.split("\n")[0].slice(0, 90);
-				s.feed.push({ at, who: "you", text: text.slice(0, 400), tools: [] });
+				s.feed.push({ at, who: "you", text: text.slice(0, 2000), tools: [] });
 			} else {
 				s.said = text.replace(/\s+/g, " ").slice(0, 160);
-				s.feed.push({ at, who: "agent", text: text.slice(0, 600), tools: [] });
+				s.feed.push({ at, who: "agent", text: text.slice(0, 5000), tools: [] });
 			}
 		}
 		if (e.type === "response_item" && (p.type === "custom_tool_call" || p.type === "function_call")) {
@@ -220,7 +228,10 @@ export function readCodexSessions(
 			const mtime = statSync(path).mtimeMs;
 			if (now - mtime > maxAgeMs) continue;
 			const s = parseCodexSession(readFileSync(path, "utf8").split("\n"), mtime);
-			if (s) out.push(s);
+			if (s) {
+				s.file = path;
+				out.push(s);
+			}
 		}
 	}
 	return out;
@@ -272,7 +283,7 @@ export function readSessions(
 				parsed.set(path, hit);
 			}
 			// A copy, so what callers set on it (title, pin, type) never sticks to the cached one.
-			if (hit.s) out.push({ ...hit.s });
+			if (hit.s) out.push({ ...hit.s, file: path });
 		}
 	}
 	return out.sort((a, b) => b.updatedAt - a.updatedAt);
@@ -297,6 +308,8 @@ export function readAllSessions(now = Date.now()): Session[] {
 		if (!m) continue;
 		if (m.title) s.title = m.title;
 		if (m.effort) s.effort = m.effort;
+		if (m.prs.length) s.prs = m.prs;
+		if (m.branches.length) s.branches = m.branches;
 		s.role = guessRole(s.title, s.edits.map((e) => e.file));
 	}
 	const codex = readCodexSessions(undefined, undefined, now);

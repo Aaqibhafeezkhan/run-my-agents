@@ -100,3 +100,14 @@ Right-click an agent for its gauges panel: a token gauge, a model dial (Auto, Ha
 ## Attach files
 
 Click the paperclip in the message box, drop files anywhere on the board, or paste an image into the box. Files (up to 10 per message, 25 MB each) are saved in `~/.run-my-agents/uploads/<session>/`, outside your projects, and the message tells the agent where they are. Claude Code is also given that folder with `--add-dir` so it can read them.
+
+## Drag, close, delete, pull requests
+
+- **Drag agents** in the sidebar to reorder them. Drop one on Pinned to pin it, out of Pinned to unpin it, or into Closed to close it. Every move slides.
+- **Close** hides an agent under Closed (nothing is deleted). **Delete** removes the transcript of a session the Claude app does not list, after a second click; sessions in the Claude app are never deleted from here.
+- **Hover the branch** in the header to list its pull requests: the ones the Claude app attached, plus what `gh pr list` finds for the branch.
+- **Click a model tag** (SONNET, OPUS, ...) to choose the model for messages you send from the board. The tag shows `SONNET -> HAIKU` until a board message has run on it, and the model really changes on the same conversation.
+
+## Fonts
+
+The board uses [Geist and Geist Mono](https://vercel.com/font) by Vercel, bundled in the app (SIL Open Font License 1.1, see `services/app/board/fonts/LICENSE-Geist.txt`), so it looks the same offline.

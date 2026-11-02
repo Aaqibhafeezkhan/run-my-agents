@@ -2,7 +2,7 @@
 // session, which beats the board's guess. Also the type chosen for a Codex session that was just started and has
 // no id yet, matched to its session once it shows up.
 
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { AGENTS } from "../../web/src/avatars";
@@ -155,4 +155,61 @@ export function applyTune(sessions: Session[]): Session[] {
 	const tune = readTune();
 	for (const s of sessions) if (tune[s.id]) s.tune = tune[s.id];
 	return sessions;
+}
+
+const hiddenFile = () => join(dir(), "hidden.json");
+
+/** Sessions closed on the board: still there, listed under Closed until you reopen them. */
+export function readHidden(): string[] {
+	try {
+		const raw = JSON.parse(readFileSync(hiddenFile(), "utf8"));
+		return Array.isArray(raw) ? raw.map(String).filter((x) => /^[\w-]{1,128}$/.test(x)) : [];
+	} catch {
+		return [];
+	}
+}
+
+export function setHidden(id: string, on: boolean): void {
+	const rest = readHidden().filter((x) => x !== id);
+	mkdirSync(dirname(hiddenFile()), { recursive: true });
+	const tmp = `${hiddenFile()}.${process.pid}.tmp`;
+	writeFileSync(tmp, JSON.stringify(on ? [...rest, id] : rest));
+	renameSync(tmp, hiddenFile());
+}
+
+export function applyHidden(sessions: Session[]): Session[] {
+	const hidden = new Set(readHidden());
+	for (const s of sessions) if (hidden.has(s.id)) s.hidden = true;
+	return sessions;
+}
+
+/** Drops everything the board keeps about a session: its type, model, pins, closed state and attached files. */
+export function forgetSession(id: string): void {
+	setRole(id, null);
+	setTune(id, { model: "", effort: "" });
+	const p = readPins();
+	mkdirSync(dirname(pinFile()), { recursive: true });
+	writeFileSync(pinFile(), JSON.stringify({ pinned: p.pinned.filter((x) => x !== id), unpinned: p.unpinned.filter((x) => x !== id) }, null, 2));
+	setHidden(id, false);
+	rmSync(join(dir(), "uploads", id), { recursive: true, force: true });
+}
+
+const orderFile = () => join(dir(), "order.json");
+
+/** The order you dragged your agents into, as a list of session ids. */
+export function readOrder(): string[] {
+	try {
+		const raw = JSON.parse(readFileSync(orderFile(), "utf8"));
+		return Array.isArray(raw) ? raw.map(String).filter((x) => /^[\w-]{1,128}$/.test(x)).slice(0, 500) : [];
+	} catch {
+		return [];
+	}
+}
+
+export function setOrder(ids: string[]): void {
+	const clean = [...new Set(ids.map(String).filter((x) => /^[\w-]{1,128}$/.test(x)))].slice(0, 500);
+	mkdirSync(dirname(orderFile()), { recursive: true });
+	const tmp = `${orderFile()}.${process.pid}.tmp`;
+	writeFileSync(tmp, JSON.stringify(clean));
+	renameSync(tmp, orderFile());
 }
