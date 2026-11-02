@@ -499,9 +499,16 @@ async function sendMsg(){const t=$("msg"),s=S.find(x=>x.id===sel);if(!t||!s)retu
  const r=await post("api/send",{id:s.id,text,files}).catch(()=>({error:"The board is not answering."}));if(r.error){toast(r.error);return}
  ATT[s.id]=[];drawTray();
  fx("sent",0,0,text.replace(/\\s+/g," "));
- t.value="";saveDraft(s.id,"");t.style.height="28px";follow();s.sending=true;const sb=document.querySelector(".send");if(sb){sb.disabled=true;sb.textContent="Answering…"}toast("Sent to "+s.role);last=""}
+ if(text)pushHist(s.id,text); t.value="";saveDraft(s.id,"");t.style.height="28px";follow();s.sending=true;const sb=document.querySelector(".send");if(sb){sb.disabled=true;sb.textContent="Answering…"}toast("Sent to "+s.role);last=""}
 let OPT=null,ND=null,wantSel="",showRoles=false,dt=0,LIM={tokens:0,auto:false},ORDER=[],dragId="",movedId="";
 const dk=id=>"rma-draft-"+id;
+const hk=id=>"rma-hist-"+id;let hpos=-1,hstash="",hsel="";
+function readHist(id){try{const a=JSON.parse(localStorage.getItem(hk(id))||"[]");return Array.isArray(a)?a.map(String):[]}catch(e){return[]}}
+function pushHist(id,v){try{const a=readHist(id).filter(x=>x!==v);a.push(v);localStorage.setItem(hk(id),JSON.stringify(a.slice(-50)))}catch(e){}hpos=-1}
+function showHist(t,v){t.value=v;t.style.height="28px";t.style.height=Math.min(160,Math.max(28,t.scrollHeight))+"px";t.setSelectionRange(v.length,v.length);saveDraft(sel,v)}
+document.addEventListener("keydown",e=>{const t=e.target;if(!t||t.id!=="msg"||e.shiftKey||e.altKey||e.metaKey||e.ctrlKey)return;if(hsel!==sel){hsel=sel;hpos=-1}
+ if(e.key==="ArrowUp"&&t.selectionStart===0&&t.selectionEnd===0){const h=readHist(sel);if(!h.length)return;e.preventDefault();if(hpos===-1){hstash=t.value;hpos=h.length}if(hpos>0){hpos--;showHist(t,h[hpos]);t.setSelectionRange(0,0)}}
+ else if(e.key==="ArrowDown"&&hpos!==-1&&(t.selectionStart===t.value.length||t.selectionStart===0)){e.preventDefault();const h=readHist(sel);hpos++;if(hpos>=h.length){hpos=-1;showHist(t,hstash)}else showHist(t,h[hpos])}});
 function saveDraft(id,v){try{if(v)localStorage.setItem(dk(id),v);else localStorage.removeItem(dk(id))}catch(e){}}
 function loadDraft(id){try{return localStorage.getItem(dk(id))||""}catch(e){return""}}
 function restoreDraft(id){const t=$("msg");if(!t)return;t.value=loadDraft(id);if(t.value){t.style.height="28px";t.style.height=Math.min(160,Math.max(28,t.scrollHeight))+"px";follow()}}
