@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Two fake sessions edit the same file; the second is warned once, then allowed.
 set -euo pipefail
+
+node --test "$(dirname "$0")/check.test.mjs"
 here=$(cd "$(dirname "$0")/.." && pwd)
 export RUN_MY_AGENTS_DIR=$(mktemp -d)
 hook() { printf '{"session_id":"%s","cwd":"/tmp","tool_input":{"file_path":"/tmp/api.ts"}}' "$1" | node "$here/hooks/check.mjs"; }
