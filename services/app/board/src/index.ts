@@ -2,13 +2,13 @@
 // its tokens against the limit, and skills for its job. Local only; started by `flisk up` or the Mac app.
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { statSync } from "node:fs";
-import { resolve } from "node:path";
+import { mkdirSync, statSync, writeFileSync } from "node:fs";
+import { basename, join, resolve, sep } from "node:path";
 import { Hono } from "hono";
 import { lowerModel, readLimits, setProjectModel, writeLimits } from "../../../../hooks/limits.mjs";
 import { AGENTS } from "../../web/src/avatars";
 import { PAGE } from "./page";
-import { addPending, applyRoles, applyTune, EFFORTS, ROLES, setPin, setRole, setTune, TUNE_MODELS } from "./prefs";
+import { addPending, applyRoles, applyTune, dataDir, EFFORTS, ROLES, setPin, setRole, setTune, TUNE_MODELS } from "./prefs";
 import { findClashes, guessRole, readAllSessions, type Session } from "./sessions";
 import SKILLS from "./skills.json";
 
@@ -43,10 +43,20 @@ export function skillsFor(role: string, n = 8) {
  * Writes come only from this page: a JSON body (which a cross-site form cannot send without a preflight this
  * server never answers) and, when the browser sends one, a localhost Origin.
  */
-function sameOrigin(c: { req: { header: (n: string) => string | undefined } }): boolean {
-	if (!(c.req.header("content-type") ?? "").startsWith("application/json")) return false;
+type Req = { req: { header: (n: string) => string | undefined } };
+function localOrigin(c: Req): boolean {
 	const origin = c.req.header("origin");
 	return !origin || /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin);
+}
+function sameOrigin(c: Req): boolean {
+	return (c.req.header("content-type") ?? "").startsWith("application/json") && localOrigin(c);
+}
+
+const MAX_FILE = 25 * 1024 * 1024;
+/** A file name that is safe to put on disk and in a prompt: no folders, no odd characters. */
+export function safeName(name: string): string {
+	const base = basename(String(name).replace(/\\/g, "/")).replace(/[^\w.\- ]+/g, "_").replace(/^\.+/, "").trim().slice(0, 120);
+	return base || "file";
 }
 
 /** Sessions with a message on its way, so a second send waits for the first reply. */
@@ -58,11 +68,11 @@ const PROMPT_LIMIT = 20_000;
  * `claude -p --resume`, Codex with `codex exec resume`. The prompt goes on stdin, never into argv. The reply lands
  * in the session's own transcript, which the board already reads.
  */
-export function sendToSession(s: Session, text: string, run = spawn): Promise<void> {
+export function sendToSession(s: Session, text: string, run = spawn, dirs: string[] = []): Promise<void> {
 	const [cmd, args] =
 		s.agent === "codex"
 			? ["codex", ["exec", "--skip-git-repo-check", "--sandbox", "workspace-write", "resume", s.id]]
-			: ["claude", ["-p", "--resume", s.id, "--permission-mode", "acceptEdits", ...(s.tune?.model ? ["--model", s.tune.model] : []), ...(s.tune?.effort ? ["--effort", s.tune.effort] : [])]];
+			: ["claude", ["-p", "--resume", s.id, "--permission-mode", "acceptEdits", ...(s.tune?.model ? ["--model", s.tune.model] : []), ...(s.tune?.effort ? ["--effort", s.tune.effort] : []), ...dirs.flatMap((d) => ["--add-dir", d])]];
 	return new Promise((resolve, reject) => {
 		const child = run(cmd, args as string[], { cwd: s.cwd || undefined, stdio: ["pipe", "ignore", "ignore"] });
 		child.on("error", reject);
@@ -172,15 +182,26 @@ export function createApp(
 	});
 	app.post("/api/send", async (c) => {
 		if (!sameOrigin(c)) return c.json({ error: "Send JSON from the board." }, 403);
-		const { id, text } = (await c.req.json().catch(() => ({}))) as { id?: string; text?: string };
+		const { id, text, files } = (await c.req.json().catch(() => ({}))) as { id?: string; text?: string; files?: unknown };
 		const message = String(text ?? "").trim();
-		if (!message) return c.json({ error: "Type a message first." }, 400);
+		if (!message && !(Array.isArray(files) && files.length)) return c.json({ error: "Type a message first." }, 400);
 		if (message.length > PROMPT_LIMIT) return c.json({ error: "That message is too long." }, 400);
 		const s = read().find((x) => x.id === id);
 		if (!s) return c.json({ error: "That session is gone." }, 404);
 		if (sending.has(s.id)) return c.json({ error: `${s.role} is still answering your last message.` }, 409);
+		// Only files this board saved for this session can be attached, however the request names them.
+		const dir = join(dataDir(), "uploads", s.id);
+		const attached = (Array.isArray(files) ? files : []).slice(0, 10).map(String).filter((f) => {
+			const p = resolve(f);
+			try {
+				return p.startsWith(dir + sep) && statSync(p).isFile();
+			} catch {
+				return false;
+			}
+		});
+		const body = `${message || (attached.length ? "Please look at the attached files." : "")}${attached.length ? `\n\nAttached files (saved on this computer, read them with your tools):\n${attached.map((f) => `- ${f}`).join("\n")}` : ""}`;
 		sending.add(s.id);
-		send(s, message)
+		send(s, body, undefined, attached.length ? [dir] : [])
 			.catch((e) => console.error(`send to ${s.id} failed:`, e))
 			.finally(() => sending.delete(s.id));
 		return c.json({ sent: true }, 202);
@@ -211,6 +232,23 @@ export function createApp(
 		if (role && !ROLES.includes(role)) return c.json({ error: "Unknown agent type." }, 400);
 		setRole(id, role || null);
 		return c.json({ id, role: role || null });
+	});
+	// Saves a file you attach, outside your projects, in ~/.run-my-agents/uploads/<session>/. The body is the raw file.
+	app.post("/api/upload", async (c) => {
+		if (c.req.header("x-run-my-agents") !== "1" || !localOrigin(c)) return c.json({ error: "Upload from the board." }, 403);
+		const id = c.req.query("id") ?? "";
+		if (!/^[\w-]{1,128}$/.test(id)) return c.json({ error: "Unknown session." }, 400);
+		if (!read().some((x) => x.id === id)) return c.json({ error: "That session is gone." }, 404);
+		if (Number(c.req.header("content-length") ?? 0) > MAX_FILE) return c.json({ error: "That file is over 25 MB." }, 413);
+		const bytes = new Uint8Array(await c.req.arrayBuffer());
+		if (!bytes.length) return c.json({ error: "That file is empty." }, 400);
+		if (bytes.length > MAX_FILE) return c.json({ error: "That file is over 25 MB." }, 413);
+		const dir = join(dataDir(), "uploads", id);
+		mkdirSync(dir, { recursive: true });
+		const name = safeName(c.req.query("name") ?? "");
+		const path = join(dir, `${Date.now().toString(36)}-${name}`);
+		writeFileSync(path, bytes, { mode: 0o600 });
+		return c.json({ path, name, size: bytes.length });
 	});
 	// Pins in the board. The Claude app's own pins show too; unpinning here hides one on this board only.
 	app.post("/api/pin", async (c) => {

@@ -237,6 +237,8 @@ export function findClashes(sessions: Session[], now = Date.now(), windowMs = 10
 		.map(([file, ids]) => ({ file, sessions: [...ids] }));
 }
 
+const parsed = new Map<string, { mtime: number; s: Session | undefined }>();
+
 /** Sessions whose transcript changed within maxAgeMs, newest first. */
 export function readSessions(
 	root = process.env.CLAUDE_PROJECTS_DIR || join(homedir(), ".claude", "projects"),
@@ -263,8 +265,14 @@ export function readSessions(
 			const path = join(root, folder, f);
 			const mtime = statSync(path).mtimeMs;
 			if (now - mtime > maxAgeMs && !keep.has(f.replace(/\.jsonl$/, ""))) continue;
-			const s = parseSession(f.replace(/\.jsonl$/, ""), readFileSync(path, "utf8").split("\n"), mtime);
-			if (s) out.push(s);
+			// Reading a transcript is the slow part, and old ones do not change: parse each file once per change.
+			let hit = parsed.get(path);
+			if (!hit || hit.mtime !== mtime) {
+				hit = { mtime, s: parseSession(f.replace(/\.jsonl$/, ""), readFileSync(path, "utf8").split("\n"), mtime) };
+				parsed.set(path, hit);
+			}
+			// A copy, so what callers set on it (title, pin, type) never sticks to the cached one.
+			if (hit.s) out.push({ ...hit.s });
 		}
 	}
 	return out.sort((a, b) => b.updatedAt - a.updatedAt);
@@ -276,7 +284,11 @@ export function readSessions(
  */
 export function readAllSessions(now = Date.now()): Session[] {
 	const meta = readDesktopMeta();
-	const keep = new Set([...[...meta].filter(([, m]) => m.pinned).map(([id]) => id), ...readPins().pinned].filter((id) => isPinned(id, true)));
+	// Like the Claude app: every unarchived session it lists (the 30 most recent) shows up whatever its age, so
+	// unpinning an old one only moves it to Idle. Pins, from the app or the board, are always kept.
+	const recent = [...meta].filter(([, m]) => !m.archived).sort((a, b) => b[1].at - a[1].at).slice(0, 30).map(([id]) => id);
+	const pinnedIds = [...[...meta].filter(([, m]) => m.pinned).map(([id]) => id), ...readPins().pinned].filter((id) => isPinned(id, true));
+	const keep = new Set([...recent, ...pinnedIds]);
 	const claude = readSessions(undefined, undefined, now, keep).filter((s) => !meta.get(s.id)?.archived || isPinned(s.id, !!meta.get(s.id)?.pinned));
 	for (const s of claude) {
 		const m = meta.get(s.id);

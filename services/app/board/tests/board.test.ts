@@ -213,8 +213,8 @@ describe("claude desktop pins and names", () => {
 		writeFileSync(join(dir, "local_b.json"), JSON.stringify({ sessionId: "local_b", cliSessionId: "cli-b", title: "Ghostfolio", isArchived: true }));
 		writeFileSync(join(dir, "local_c.json"), "not json");
 		const meta = readDesktopMeta(root);
-		expect(meta.get("cli-a")).toEqual({ title: "Flisk 5-second YouTube Short", pinned: true, archived: false, effort: "" });
-		expect(meta.get("cli-b")).toEqual({ title: "Ghostfolio", pinned: false, archived: true, effort: "" });
+		expect(meta.get("cli-a")).toEqual({ title: "Flisk 5-second YouTube Short", pinned: true, archived: false, effort: "", at: 0 });
+		expect(meta.get("cli-b")).toEqual({ title: "Ghostfolio", pinned: false, archived: true, effort: "", at: 0 });
 		expect(meta.size).toBe(2);
 	});
 
@@ -326,7 +326,7 @@ describe("new session page", () => {
 		const { PAGE } = await import("../src/page");
 		const js = PAGE.split("<script>")[1].split("</script>")[0];
 		expect(() => new Function(js)).not.toThrow();
-		for (const part of ['data-act="newopen"', 'id="dlg"', 'data-act="roles"', "function startNew(", "function drawNew("]) expect(PAGE).toContain(part);
+		for (const part of ['data-act="newopen"', 'id="dlg"', 'hb("roles"', "function startNew(", "function drawNew("]) expect(PAGE).toContain(part);
 	});
 });
 
@@ -357,7 +357,7 @@ describe("typing box: fairies, drafts and hot reload", () => {
 	it("keeps the fairies in their own strip above the text row, flying at a steady pace", async () => {
 		const { PAGE } = await import("../src/page");
 		expect(PAGE).toContain('<div class="sky"><div class="fairy">');
-		expect(PAGE).toContain('</div></div><div class="row">');
+		expect(PAGE).toContain('</div></div><div class="atray" id="atray"></div><div class="row">');
 		expect(PAGE).not.toMatch(/\.compose:focus-within \.fairy/);
 		expect(PAGE).not.toMatch(/\.fairy[^{]*\{[^}]*animation-duration:4s/);
 		const js = PAGE.split("<script>")[1].split("</script>")[0];
@@ -506,5 +506,101 @@ describe("model and effort", () => {
 		}) as never;
 		await startNewSession({ agent: "claude", cwd: "/tmp", text: "x", id: "i", model: "sonnet", effort: "high" }, fake);
 		expect(args).toEqual(["-p", "--session-id", "i", "--permission-mode", "acceptEdits", "--model", "sonnet", "--effort", "high"]);
+	});
+});
+
+describe("old sessions stay visible", () => {
+	it("keeps a session of any age when asked to, and gives callers a copy of the cached one", async () => {
+		const { mkdtempSync, mkdirSync, writeFileSync, utimesSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		const { readSessions } = await import("../src/sessions");
+		const root = mkdtempSync(join(tmpdir(), "rma-old-"));
+		mkdirSync(join(root, "proj"));
+		const file = join(root, "proj", "old-1.jsonl");
+		writeFileSync(file, `${JSON.stringify({ type: "user", cwd: "/repo", message: { content: "make the short" } })}\n`);
+		const days = 3 * 86_400;
+		utimesSync(file, Date.now() / 1000 - days, Date.now() / 1000 - days);
+		expect(readSessions(root, 3_600_000, Date.now(), new Set())).toHaveLength(0);
+		const kept = readSessions(root, 3_600_000, Date.now(), new Set(["old-1"]));
+		expect(kept.map((s) => s.title)).toEqual(["make the short"]);
+		kept[0].title = "changed by a caller";
+		expect(readSessions(root, 3_600_000, Date.now(), new Set(["old-1"]))[0].title).toBe("make the short");
+	});
+});
+
+describe("header", () => {
+	it("has a 3D, animated, hoverable header: icon buttons, copy chips, shimmering title", async () => {
+		const { PAGE } = await import("../src/page");
+		const js = PAGE.split("<script>")[1].split("</script>")[0];
+		expect(() => new Function(js)).not.toThrow();
+		for (const part of ["function hb(", 'class="mchips"', 'data-ctext="', ".hb span:hover", ".mc:hover", ".hd::after", ".proj span{", ".cnt i{", ".btn:active", "const IC="]) expect(PAGE).toContain(part);
+	});
+});
+
+describe("file upload", () => {
+	const J = { "content-type": "application/json" };
+	const upload = (app: ReturnType<typeof createApp>, q: string, body: BodyInit, headers: Record<string, string> = { "x-run-my-agents": "1" }) =>
+		app.request(`/api/upload?${q}`, { method: "POST", headers, body });
+
+	it("saves an attached file under the session's own folder with a safe name, and refuses other sites", async () => {
+		const { mkdtempSync, readFileSync, existsSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		process.env.RUN_MY_AGENTS_DIR = mkdtempSync(join(tmpdir(), "rma-up-"));
+		const s = parseSession("u1", [ask("hi")], now);
+		const app = createApp(() => (s ? [s] : []));
+		const res = await upload(app, "id=u1&name=" + encodeURIComponent("../../etc/pass wd?.png"), new Uint8Array([1, 2, 3]));
+		expect(res.status).toBe(200);
+		const out = await res.json();
+		expect(out.path.startsWith(join(process.env.RUN_MY_AGENTS_DIR, "uploads", "u1"))).toBe(true);
+		expect(out.name).toBe("pass wd_.png");
+		expect([...readFileSync(out.path)]).toEqual([1, 2, 3]);
+		expect(existsSync(join(process.env.RUN_MY_AGENTS_DIR, "etc"))).toBe(false);
+		expect((await upload(app, "id=u1&name=a", new Uint8Array([1]), {})).status).toBe(403);
+		expect((await upload(app, "id=u1&name=a", new Uint8Array([1]), { "x-run-my-agents": "1", origin: "https://evil.example" })).status).toBe(403);
+		expect((await upload(app, "id=nope&name=a", new Uint8Array([1]))).status).toBe(404);
+		expect((await upload(app, "id=../x&name=a", new Uint8Array([1]))).status).toBe(400);
+		expect((await upload(app, "id=u1&name=a", new Uint8Array([]))).status).toBe(400);
+		expect((await upload(app, "id=u1&name=a", new Uint8Array([1]), { "x-run-my-agents": "1", "content-length": String(30 * 1024 * 1024) })).status).toBe(413);
+	});
+
+	it("sends only files this board saved for the session, and lets the agent read that folder", async () => {
+		const { mkdtempSync, mkdirSync, writeFileSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		process.env.RUN_MY_AGENTS_DIR = mkdtempSync(join(tmpdir(), "rma-up2-"));
+		const dir = join(process.env.RUN_MY_AGENTS_DIR, "uploads", "u2");
+		mkdirSync(dir, { recursive: true });
+		const ok = join(dir, "a-shot.png");
+		writeFileSync(ok, "x");
+		const outside = join(process.env.RUN_MY_AGENTS_DIR, "secret.txt");
+		writeFileSync(outside, "x");
+		const s = parseSession("u2", [ask("hi")], now);
+		let got: { text: string; dirs: string[] } | undefined;
+		const app = createApp(() => (s ? [s] : []), async (_s, text, _run, dirs) => { got = { text, dirs: dirs ?? [] }; });
+		const res = await app.request("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: "u2", text: "look", files: [ok, outside, "/etc/hosts"] }) });
+		expect(res.status).toBe(202);
+		expect(got?.dirs).toEqual([dir]);
+		expect(got?.text).toContain(`- ${ok}`);
+		expect(got?.text).not.toContain("secret.txt");
+		expect(got?.text).not.toContain("/etc/hosts");
+		const { sendToSession } = await import("../src/index");
+		let args: string[] = [];
+		const fake = ((_: string, a: string[]) => {
+			args = a;
+			const child = new (require("node:events").EventEmitter)();
+			child.stdin = { end: () => setTimeout(() => child.emit("close"), 0) };
+			return child;
+		}) as never;
+		if (s) await sendToSession(s, "go", fake, [dir]);
+		expect(args.slice(-2)).toEqual(["--add-dir", dir]);
+	});
+
+	it("has the attach button, tray and drop zone, and the right-click panel fits the window", async () => {
+		const { PAGE } = await import("../src/page");
+		const js = PAGE.split("<script>")[1].split("</script>")[0];
+		expect(() => new Function(js)).not.toThrow();
+		for (const part of ['data-act="attach"', "function attachFiles(", 'id="drop"', "x-run-my-agents", ".clip:hover", ".att:hover", "--fit"]) expect(PAGE).toContain(part);
 	});
 });

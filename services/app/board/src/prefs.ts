@@ -12,6 +12,7 @@ export const ROLES: string[] = AGENTS.map((a) => a.role);
 
 /** Read on every call, so a different RUN_MY_AGENTS_DIR (tests, a second profile) just works. */
 const dir = () => process.env.RUN_MY_AGENTS_DIR || join(homedir(), ".run-my-agents");
+export const dataDir = dir;
 const file = () => join(dir(), "roles.json");
 const pinFile = () => join(dir(), "pins.json");
 

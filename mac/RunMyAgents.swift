@@ -143,6 +143,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     return nil
   }
 
+  // The paperclip: <input type=file> needs the app to show the open panel itself.
+  func webView(_ w: WKWebView, runOpenPanelWith p: WKOpenPanelParameters, initiatedByFrame f: WKFrameInfo, completionHandler: @escaping ([URL]?) -> Void) {
+    let panel = NSOpenPanel()
+    panel.allowsMultipleSelection = p.allowsMultipleSelection
+    panel.canChooseFiles = true
+    panel.canChooseDirectories = false
+    panel.prompt = "Attach"
+    if let win = w.window {
+      panel.beginSheetModal(for: win) { r in completionHandler(r == .OK ? panel.urls : nil) }
+    } else {
+      completionHandler(panel.runModal() == .OK ? panel.urls : nil)
+    }
+  }
+
   func buildStatusItem() {
     statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     let img = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { r in

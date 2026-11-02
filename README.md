@@ -96,3 +96,7 @@ cd services/app/board && bun run dev
 ## Pins and the right-click menu
 
 Right-click an agent for its gauges panel: a token gauge, a model dial (Auto, Haiku, Sonnet, Opus), an effort gauge (low to max), switches for Pin and Mute, the agent type, and tiles to open its folder in Finder, Terminal or VS Code, plus copy buttons. The model and effort you set are used for every message the board sends to that agent (`claude --model --effort`); Claude Code cannot change a running session's model from outside, so the dial also copies `/model <name>` for the Claude app. Pins from the Claude app show as pinned too. Pins made in the board are saved in `~/.run-my-agents/pins.json` and never change the Claude app; unpinning here hides an app pin on this board only.
+
+## Attach files
+
+Click the paperclip in the message box, drop files anywhere on the board, or paste an image into the box. Files (up to 10 per message, 25 MB each) are saved in `~/.run-my-agents/uploads/<session>/`, outside your projects, and the message tells the agent where they are. Claude Code is also given that folder with `--add-dir` so it can read them.
