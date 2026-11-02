@@ -13,4 +13,17 @@ echo "$out" | grep -q 'aaaa1111' || fail "warning should name the other session"
 [ -z "$(hook bbbb2222)" ] || fail "second try should go through"
 out=$(hook aaaa1111); echo "$out" | grep -q '"deny"' || fail "first session should now be warned about the second"
 printf 'not json' | node "$here/hooks/check.mjs" || fail "bad input must not error"
-echo "PASS: 6 checks"
+
+# Invalid TTL must fall back to 10 minutes, not NaN (which would drop every claim) (#3).
+export RUN_MY_AGENTS_DIR=$(mktemp -d)
+export RUN_MY_AGENTS_TTL_MINUTES=abc
+[ -z "$(hook cccc3333)" ] || fail "ttl=abc first session should be allowed"
+out=$(hook dddd4444); echo "$out" | grep -q '"deny"' || fail "ttl=abc should still warn the second session"
+
+export RUN_MY_AGENTS_DIR=$(mktemp -d)
+export RUN_MY_AGENTS_TTL_MINUTES=-5
+[ -z "$(hook eeee5555)" ] || fail "ttl=-5 first session should be allowed"
+out=$(hook ffff6666); echo "$out" | grep -q '"deny"' || fail "ttl=-5 should still warn the second session"
+unset RUN_MY_AGENTS_TTL_MINUTES
+
+echo "PASS: 10 checks"

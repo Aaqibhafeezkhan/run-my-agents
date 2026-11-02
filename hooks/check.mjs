@@ -13,7 +13,15 @@ import { basename, isAbsolute, join, resolve } from "node:path";
 
 const DIR = process.env.RUN_MY_AGENTS_DIR || join(homedir(), ".run-my-agents");
 const FILE = join(DIR, "claims.json");
-const TTL_MS = Number(process.env.RUN_MY_AGENTS_TTL_MINUTES || 10) * 60_000;
+
+/** Positive finite minutes, else the documented default of 10 (#3). */
+function ttlMsFromEnv(raw = process.env.RUN_MY_AGENTS_TTL_MINUTES) {
+  const minutes = raw === undefined || raw === "" ? 10 : Number(raw);
+  if (!Number.isFinite(minutes) || minutes <= 0) return 10 * 60_000;
+  return minutes * 60_000;
+}
+
+const TTL_MS = ttlMsFromEnv();
 
 function readJson(path, fallback) {
   try {
