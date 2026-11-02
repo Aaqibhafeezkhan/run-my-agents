@@ -84,3 +84,15 @@ refreshes `services/app/board/src/skills.json`).
 
 `mac/build.sh` builds `mac/build/Run My Agents.app`: the board in a native window, plus a menu bar item. It starts
 the board itself if nothing answers on port 4100. See [mac/README.md](mac/README.md).
+
+## Develop
+
+```
+cd services/app/board && bun run dev
+```
+
+`bun run dev` restarts the board when its code changes, and an open board page reloads itself and keeps what you were typing (drafts are saved per agent in the browser).
+
+## Pins and the right-click menu
+
+Right-click an agent for its menu: pin or unpin, change its type, move it to a cheaper model, open its folder in Finder, Terminal or VS Code, and copy its name, ID or resume command. Pins from the Claude app show as pinned too. Pins made in the board are saved in `~/.run-my-agents/pins.json` and never change the Claude app; unpinning here hides an app pin on this board only.

@@ -8,6 +8,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { readDesktopMeta } from "./desktop";
+import { isPinned, readPins } from "./prefs";
 
 export interface Tokens {
 	/** New input, cache writes and output: what counts toward a limit. */
@@ -271,18 +272,17 @@ export function readSessions(
  */
 export function readAllSessions(now = Date.now()): Session[] {
 	const meta = readDesktopMeta();
-	const keep = new Set([...meta].filter(([, m]) => m.pinned).map(([id]) => id));
-	const claude = readSessions(undefined, undefined, now, keep).filter((s) => {
-		const m = meta.get(s.id);
-		return !m?.archived || m.pinned;
-	});
+	const keep = new Set([...[...meta].filter(([, m]) => m.pinned).map(([id]) => id), ...readPins().pinned].filter((id) => isPinned(id, true)));
+	const claude = readSessions(undefined, undefined, now, keep).filter((s) => !meta.get(s.id)?.archived || isPinned(s.id, !!meta.get(s.id)?.pinned));
 	for (const s of claude) {
 		const m = meta.get(s.id);
 		if (meta.size) s.viaApp = !!m;
+		s.pinned = isPinned(s.id, !!m?.pinned);
 		if (!m) continue;
 		if (m.title) s.title = m.title;
-		s.pinned = m.pinned;
 		s.role = guessRole(s.title, s.edits.map((e) => e.file));
 	}
-	return [...claude, ...readCodexSessions(undefined, undefined, now)].sort((a, b) => b.updatedAt - a.updatedAt);
+	const codex = readCodexSessions(undefined, undefined, now);
+	for (const s of codex) s.pinned = isPinned(s.id, false);
+	return [...claude, ...codex].sort((a, b) => b.updatedAt - a.updatedAt);
 }

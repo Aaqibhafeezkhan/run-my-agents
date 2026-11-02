@@ -352,3 +352,89 @@ describe("local only", () => {
 		expect(parseSession("0b7f-ok_1", [ask("hi")], now)?.id).toBe("0b7f-ok_1");
 	});
 });
+
+describe("typing box: fairies, drafts and hot reload", () => {
+	it("keeps the fairies in their own strip above the text row, flying at a steady pace", async () => {
+		const { PAGE } = await import("../src/page");
+		expect(PAGE).toContain('<div class="sky"><div class="fairy">');
+		expect(PAGE).toContain('</div></div><div class="row">');
+		expect(PAGE).not.toMatch(/\.compose:focus-within \.fairy/);
+		expect(PAGE).not.toMatch(/\.fairy[^{]*\{[^}]*animation-duration:4s/);
+		const js = PAGE.split("<script>")[1].split("</script>")[0];
+		expect(() => new Function(js)).not.toThrow();
+	});
+
+	it("saves what you type per agent and restores it, and tells an open page when the build changes", async () => {
+		const { PAGE } = await import("../src/page");
+		for (const part of ["function saveDraft(", "function restoreDraft(", "rma-draft-", "location.reload()", "BUILD0"]) expect(PAGE).toContain(part);
+		const a = await (await createApp(() => []).request("/api/sessions")).json();
+		const b = await (await createApp(() => []).request("/api/sessions")).json();
+		expect(a.build).toBeString();
+		expect(a.build).toBe(b.build);
+	});
+});
+
+describe("pins and open-in", () => {
+	const J = { "content-type": "application/json" };
+	const post = (app: ReturnType<typeof createApp>, path: string, body: object) =>
+		app.request(path, { method: "POST", headers: J, body: JSON.stringify(body) });
+
+	it("pins and unpins in the board, and unpinning hides a pin the Claude app has", async () => {
+		const { mkdtempSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		process.env.RUN_MY_AGENTS_DIR = mkdtempSync(join(tmpdir(), "rma-pins-"));
+		const { isPinned, readPins } = await import("../src/prefs");
+		const app = createApp(() => []);
+		expect(isPinned("s1", false)).toBe(false);
+		expect((await post(app, "/api/pin", { id: "s1", pinned: true })).status).toBe(200);
+		expect(isPinned("s1", false)).toBe(true);
+		expect(isPinned("s2", true)).toBe(true); // pinned in the Claude app
+		await post(app, "/api/pin", { id: "s2", pinned: false });
+		expect(isPinned("s2", true)).toBe(false); // hidden here, the Claude app is untouched
+		await post(app, "/api/pin", { id: "s1", pinned: false });
+		expect(readPins()).toEqual({ pinned: [], unpinned: ["s2", "s1"] });
+		for (const bad of [{ id: "../x", pinned: true }, { id: "s1" }, { id: "s1", pinned: "yes" }]) expect((await post(app, "/api/pin", bad)).status).toBe(400);
+		expect((await app.request("/api/pin", { method: "POST", body: "id=s1" })).status).toBe(403);
+	});
+
+	it("opens a session's folder in the chosen app, and says so when it cannot", async () => {
+		const { mkdtempSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		const dir = mkdtempSync(join(tmpdir(), "rma-open-"));
+		const s = parseSession("a", [line({ type: "user", cwd: dir, message: { content: "hi" } })], now);
+		const calls: string[][] = [];
+		const app = createApp(() => (s ? [s] : []), undefined, { open: async (t, cwd) => { calls.push([t, cwd]); return t !== "vscode"; } });
+		expect((await post(app, "/api/open", { id: "a", target: "finder" })).status).toBe(200);
+		expect(calls).toEqual([["finder", dir]]);
+		expect((await post(app, "/api/open", { id: "a", target: "vscode" })).status).toBe(400);
+		expect((await post(app, "/api/open", { id: "nope", target: "finder" })).status).toBe(404);
+	});
+
+	it("builds the right command for each app, and refuses an unknown one", async () => {
+		const { openIn } = await import("../src/index");
+		const seen: string[][] = [];
+		const fake = ((cmd: string, args: string[]) => {
+			seen.push([cmd, ...args]);
+			const child = new (require("node:events").EventEmitter)();
+			setTimeout(() => child.emit("close", 0), 0);
+			return child;
+		}) as never;
+		expect(await openIn("finder", "/repo", fake)).toBe(true);
+		expect(await openIn("rm -rf", "/repo", fake)).toBe(false);
+		expect(seen.length).toBe(1);
+		expect(seen[0].at(-1)).toBe("/repo");
+	});
+});
+
+describe("right-click menu", () => {
+	it("replaces the browser's menu on agents, with pin and unpin, type, folder and copy actions", async () => {
+		const { PAGE } = await import("../src/page");
+		const js = PAGE.split("<script>")[1].split("</script>")[0];
+		expect(() => new Function(js)).not.toThrow();
+		for (const part of ['addEventListener("contextmenu"', "e.preventDefault()", "function menuItems(", '"Unpin":"Pin to top"', "Open folder in Finder", "Copy resume command", 'data-act="pin"', ".cmenu{"]) expect(PAGE).toContain(part);
+		// text fields keep the browser's own menu, so copy and paste still work there
+		expect(PAGE).toContain('tg==="TEXTAREA"');
+	});
+});

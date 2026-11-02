@@ -8,7 +8,7 @@ import { Hono } from "hono";
 import { lowerModel, readLimits, setProjectModel, writeLimits } from "../../../../hooks/limits.mjs";
 import { AGENTS } from "../../web/src/avatars";
 import { PAGE } from "./page";
-import { addPending, applyRoles, ROLES, setRole } from "./prefs";
+import { addPending, applyRoles, ROLES, setPin, setRole } from "./prefs";
 import { findClashes, guessRole, readAllSessions, type Session } from "./sessions";
 import SKILLS from "./skills.json";
 
@@ -75,6 +75,25 @@ export function sendToSession(s: Session, text: string, run = spawn): Promise<vo
 const LOCAL_HOST = /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/;
 
 
+/** Opens a session's folder in Finder, Terminal or VS Code. Resolves false when the app could not be opened. */
+export function openIn(target: string, cwd: string, run = spawn): Promise<boolean> {
+	const mac = process.platform === "darwin";
+	const argv =
+		target === "finder"
+			? mac ? ["open", cwd] : ["xdg-open", cwd]
+			: target === "terminal" && mac
+				? ["open", "-a", "Terminal", cwd]
+				: target === "vscode"
+					? mac ? ["open", "-a", "Visual Studio Code", cwd] : ["code", cwd]
+					: undefined;
+	if (!argv) return Promise.resolve(false);
+	return new Promise((resolveOpen) => {
+		const child = run(argv[0], argv.slice(1), { stdio: "ignore" });
+		child.on("error", () => resolveOpen(false));
+		child.on("close", (code) => resolveOpen(code === 0));
+	});
+}
+
 /** Which of the two coding agents the board can start are installed. */
 export const installed = () => ({ claude: !!Bun.which("claude"), codex: !!Bun.which("codex") });
 
@@ -102,13 +121,17 @@ export function startNewSession(n: NewSession, run = spawn): Promise<void> {
 	});
 }
 
+/** Changes whenever the page changes, so an open page knows to reload itself (hot reload under `bun run dev`). */
+const BUILD = Bun.hash(PAGE).toString(36);
+
 export function createApp(
 	read = () => applyRoles(readAllSessions()),
 	send = sendToSession,
-	deps: { start?: typeof startNewSession; which?: typeof installed } = {},
+	deps: { start?: typeof startNewSession; which?: typeof installed; open?: typeof openIn } = {},
 ) {
 	const start = deps.start ?? startNewSession;
 	const which = deps.which ?? installed;
+	const open = deps.open ?? openIn;
 	const app = new Hono();
 	app.use("*", async (c, next) => {
 		if (!LOCAL_HOST.test(c.req.header("host") ?? new URL(c.req.url).host)) return c.text("Open the board at http://localhost.", 403);
@@ -129,6 +152,7 @@ export function createApp(
 			})),
 			clashes: findClashes(sessions),
 			limits,
+			build: BUILD,
 		});
 	});
 	app.post("/api/limits", async (c) => {
@@ -186,6 +210,28 @@ export function createApp(
 		if (role && !ROLES.includes(role)) return c.json({ error: "Unknown agent type." }, 400);
 		setRole(id, role || null);
 		return c.json({ id, role: role || null });
+	});
+	// Pins in the board. The Claude app's own pins show too; unpinning here hides one on this board only.
+	app.post("/api/pin", async (c) => {
+		if (!sameOrigin(c)) return c.json({ error: "Send JSON from the board." }, 403);
+		const { id, pinned } = (await c.req.json().catch(() => ({}))) as { id?: string; pinned?: boolean };
+		if (!id || !/^[\w-]{1,128}$/.test(id) || typeof pinned !== "boolean") return c.json({ error: "Unknown session." }, 400);
+		setPin(id, pinned);
+		return c.json({ id, pinned });
+	});
+	app.post("/api/open", async (c) => {
+		if (!sameOrigin(c)) return c.json({ error: "Send JSON from the board." }, 403);
+		const { id, target } = (await c.req.json().catch(() => ({}))) as { id?: string; target?: string };
+		const s = read().find((x) => x.id === id);
+		if (!s?.cwd) return c.json({ error: "That session has no folder." }, 404);
+		try {
+			if (!statSync(s.cwd).isDirectory()) throw new Error("not a folder");
+		} catch {
+			return c.json({ error: "That folder does not exist any more." }, 404);
+		}
+		const names: Record<string, string> = { finder: "Finder", terminal: "Terminal", vscode: "VS Code" };
+		if (!(await open(String(target), s.cwd))) return c.json({ error: `Could not open ${names[String(target)] ?? "that"}.` }, 400);
+		return c.json({ opened: true });
 	});
 	app.post("/api/new", async (c) => {
 		if (!sameOrigin(c)) return c.json({ error: "Send JSON from the board." }, 403);

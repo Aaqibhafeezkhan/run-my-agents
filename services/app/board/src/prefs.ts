@@ -11,7 +11,9 @@ import type { Session } from "./sessions";
 export const ROLES: string[] = AGENTS.map((a) => a.role);
 
 /** Read on every call, so a different RUN_MY_AGENTS_DIR (tests, a second profile) just works. */
-const file = () => join(process.env.RUN_MY_AGENTS_DIR || join(homedir(), ".run-my-agents"), "roles.json");
+const dir = () => process.env.RUN_MY_AGENTS_DIR || join(homedir(), ".run-my-agents");
+const file = () => join(dir(), "roles.json");
+const pinFile = () => join(dir(), "pins.json");
 
 export function readRoles(): Record<string, string> {
 	try {
@@ -70,4 +72,34 @@ export function applyRoles(sessions: Session[]): Session[] {
 			s.roleSet = true;
 		}
 	return sessions;
+}
+
+/**
+ * Pins made in the board, kept apart from the Claude app's own pins (the board never writes to that app's files).
+ * `pinned` adds a pin; `unpinned` hides one the Claude app has, on this board only.
+ */
+export function readPins(): { pinned: string[]; unpinned: string[] } {
+	try {
+		const raw = JSON.parse(readFileSync(pinFile(), "utf8")) as { pinned?: unknown; unpinned?: unknown };
+		const ids = (v: unknown) => (Array.isArray(v) ? v.map(String).filter((x) => /^[\w-]{1,128}$/.test(x)) : []);
+		return { pinned: ids(raw.pinned), unpinned: ids(raw.unpinned) };
+	} catch {
+		return { pinned: [], unpinned: [] };
+	}
+}
+
+export function setPin(id: string, on: boolean): void {
+	const p = readPins();
+	const without = (list: string[]) => list.filter((x) => x !== id);
+	const next = on ? { pinned: [...without(p.pinned), id], unpinned: without(p.unpinned) } : { pinned: without(p.pinned), unpinned: [...without(p.unpinned), id] };
+	mkdirSync(dirname(pinFile()), { recursive: true });
+	const tmp = `${pinFile()}.${process.pid}.tmp`;
+	writeFileSync(tmp, JSON.stringify(next, null, 2));
+	renameSync(tmp, pinFile());
+}
+
+/** Pinned in the Claude app or in the board, unless unpinned here. */
+export function isPinned(id: string, inApp: boolean): boolean {
+	const p = readPins();
+	return (inApp || p.pinned.includes(id)) && !p.unpinned.includes(id);
 }
