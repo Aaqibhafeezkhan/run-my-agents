@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Run My Agents: stops a Claude Code session once when it passes its token limit, and tells it to move to the
-// next cheaper model. With autoDowngrade on, it also sets that model for the project's new sessions. It never
+// next cheaper model. It cannot change a running session's model; only the user's /model can. With autoDowngrade on, it also sets that model for the project's new sessions. It never
 // suggests a more expensive model.
 
 import { readFileSync } from "node:fs";
@@ -27,10 +27,11 @@ function main() {
   const usage = transcriptUsage(session, input.transcript_path);
   if (usage.used < limits.sessionTokens) return;
 
-  // One stop per session per model: after the first, the agent carries on until the model changes.
+  // One stop per session: a running session cannot change model from outside, so after the stop it carries on
+  // (on whatever model the user picked with /model) and is never stopped again for the same limit.
   const warnedFile = join(DIR, "usage", "warned.json");
   const warned = readJson(warnedFile, {});
-  const key = `${session}|${usage.model}`;
+  const key = session;
   if (warned[key]) return;
   warned[key] = Date.now();
   mkdirSync(join(DIR, "usage"), { recursive: true });
@@ -46,9 +47,13 @@ function main() {
   }
   const used = usage.used.toLocaleString("en-US");
   const max = limits.sessionTokens.toLocaleString("en-US");
-  const next = lower
-    ? `Tell the user to run /model ${lower} to continue on a cheaper model, then stop and wait.`
-    : "This is already the cheapest model. Tell the user, then stop and wait.";
+  // Said to the agent first: what to do with its own work, and how to tell its team, before what to tell the user.
+  const ask = lower ? `run /model ${lower} to continue on a cheaper model` : "raise the limit (this is already the cheapest model)";
+  const next =
+    "Start no new tool calls. End this turn with a short hand-off: what is done, what is left, and the next step, so the work can be picked up. " +
+    'If you are working on a kitchen order, end with ```kitchen\n{"blocked": "token limit"}\n``` so the order stops instead of waiting. ' +
+    `Then tell the user to ${ask}, and stop.\n` +
+    `run-my-agents-limit: ${JSON.stringify({ type: "token-limit", used: usage.used, limit: limits.sessionTokens, model: usage.model || null, next: lower || null, newSessionsMoved: Boolean(moved) })}`;
   process.stdout.write(
     JSON.stringify({
       hookSpecificOutput: {

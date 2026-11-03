@@ -13,7 +13,7 @@ export interface Install {
 	client: Client;
 	commands: readonly string[];
 	needs: string;
-	next: string;
+	then: string;
 }
 
 /** Steps for a client, or undefined when the client is not supported yet. */
@@ -23,11 +23,12 @@ export function installSteps(client = "claude-code"): Install | undefined {
 		client: "claude-code",
 		commands: INSTALL_COMMANDS,
 		needs: "Claude Code and node on your PATH.",
-		next: "Open two or more Claude Code sessions on the same repo, or on worktrees of it, and work as usual. Before a session edits a file another session edited in the last 10 minutes, it gets a warning once.",
+		// biome-ignore lint/suspicious/noThenProperty: a JSON field of /api/install, which is only serialised, never awaited or imported
+		then: "Open two or more Claude Code sessions on the same repo, or on worktrees of it, and work as usual. Before a session edits a file another session edited in the last 10 minutes, it gets a warning once.",
 	};
 }
 
 /** The steps as plain text, for the MCP tool and llms.txt. */
 export function summarize(i: Install): string {
-	return `In Claude Code, run:\n${i.commands.join("\n")}\n\nNeeds: ${i.needs}\n${i.next}`;
+	return `In Claude Code, run:\n${i.commands.join("\n")}\n\nNeeds: ${i.needs}\n${i.then}`;
 }

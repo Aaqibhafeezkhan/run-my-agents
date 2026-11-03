@@ -2,6 +2,25 @@ import { describe, expect, it } from "bun:test";
 import { createApp } from "../src/index";
 import { findClashes, guessRole, parseSession } from "../src/sessions";
 
+// The page builds its markup with Preact's h(). Tests that run a helper on its own pass this stand-in for h and
+// Fragment and read the HTML text back with ser, so they can still check structure and escaping.
+const Frag = Symbol("fragment");
+const hx = (type: unknown, props: Record<string, unknown> | null, ...kids: unknown[]) => ({ type, props: props || {}, kids });
+const escHtml = (x: unknown) => String(x).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const ser = (n: unknown): string => {
+	if (n == null || typeof n === "boolean") return "";
+	if (Array.isArray(n)) return n.map(ser).join("");
+	if (typeof n !== "object") return escHtml(n);
+	const { type, props, kids } = n as { type: unknown; props: Record<string, unknown>; kids: unknown[] };
+	if (type === Frag) return kids.map(ser).join("");
+	const attrs = Object.entries(props)
+		.filter(([k, v]) => k !== "dangerouslySetInnerHTML" && k !== "key" && v != null && v !== false)
+		.map(([k, v]) => ` ${k}="${escHtml(v === true ? "" : v)}"`)
+		.join("");
+	const inner = props.dangerouslySetInnerHTML ? (props.dangerouslySetInnerHTML as { __html: string }).__html : kids.map(ser).join("");
+	return `<${type}${attrs}>${inner}</${type}>`;
+};
+
 const line = (o: object) => JSON.stringify(o);
 const now = Date.parse("2026-11-01T12:00:00Z");
 const edit = (file: string, ts = "2026-11-01T11:58:00Z") =>
@@ -141,6 +160,109 @@ describe("codex, limits and skills", () => {
 	});
 });
 
+describe("grok", () => {
+	const grokLine = (o: object) => JSON.stringify(o);
+	const userQuery = (text: string) =>
+		grokLine({ type: "user", content: [{ type: "text", text: `<user_query>\n${text}\n</user_query>` }] });
+	const askGrok = (question: string, options: string[]) =>
+		grokLine({
+			type: "assistant",
+			content: "Picking a direction.",
+			model_id: "grok-4.5-build",
+			tool_calls: [{ id: "call-1", name: "ask_user_question", arguments: JSON.stringify({ questions: [{ question, options: options.map((label) => ({ label, description: "" })) }] }) }],
+		});
+
+	it("reads a chat_history.jsonl: title, model, tokens from usage, a file edit and a background command", async () => {
+		const { parseGrokSession } = await import("../src/sessions");
+		const s = parseGrokSession(
+			"01a0d502-8233-7121-a6fd-d65bab536c67",
+			"/repo",
+			[
+				grokLine({ type: "system", content: "You are Grok." }),
+				userQuery("fix the sitemap"),
+				grokLine({
+					type: "assistant",
+					content: "Reading it first.",
+					model_id: "grok-4.5-build",
+					tool_calls: [
+						{ id: "call-a", name: "read_file", arguments: JSON.stringify({ target_file: "/repo/sitemap.xml" }) },
+						{ id: "call-b", name: "search_replace", arguments: JSON.stringify({ file_path: "/repo/sitemap.xml", old_string: "a\nb", new_string: "a\nb\nc" }) },
+						{ id: "call-c", name: "run_terminal_command", arguments: JSON.stringify({ command: "bun dev", description: "Start the dev server", background: true }) },
+						{ id: "call-d", name: "todo_write", arguments: JSON.stringify({ todos: [{ content: "Fix the sitemap", status: "in_progress" }] }) },
+					],
+				}),
+			],
+			{ inputTokens: 1000, outputTokens: 50, cachedReadTokens: 800, cacheCreationTokens: 0 },
+			now,
+		);
+		expect(s).toMatchObject({ id: "01a0d502-8233-7121-a6fd-d65bab536c67", agent: "grok", model: "grok-4.5-build", cwd: "/repo", title: "fix the sitemap", tokens: { used: 1050, cached: 800 } });
+		expect(s?.edits).toEqual([{ file: "/repo/sitemap.xml", at: now, add: 3, del: 2 }]);
+		expect(s?.feed[1].tools).toEqual(["Read sitemap.xml", "Edit sitemap.xml", "Bash", "Plan"]);
+		expect(s?.feed[1].calls?.[0]).toMatchObject({ label: "Read sitemap.xml", detail: "/repo/sitemap.xml" });
+		expect(s?.bg).toEqual([{ what: "Start the dev server", at: now }]);
+		expect(s?.plan).toEqual([{ text: "Fix the sitemap", status: "in_progress" }]);
+	});
+
+	it("waits for a question, then clears it once Grok's own tool_result reports the answer", async () => {
+		const { parseGrokSession } = await import("../src/sessions");
+		const asked = parseGrokSession("01a0d5ac-2686-7830-b28d-4b563bf98280", "/repo", [userQuery("go"), askGrok("Which fix?", ["Fast", "Thorough"])], undefined, now);
+		expect(asked?.awaiting).toBe(true);
+		expect(asked?.feed.at(-1)?.options).toEqual({ ask: "Which fix?", labels: ["Fast", "Thorough"] });
+		const answered = parseGrokSession(
+			"01a0d5ac-2686-7830-b28d-4b563bf98280",
+			"/repo",
+			[userQuery("go"), askGrok("Which fix?", ["Fast", "Thorough"]), grokLine({ type: "tool_result", tool_call_id: "call-1", content: 'User has answered your questions: "Which fix?"="Fast"' })],
+			undefined,
+			now,
+		);
+		expect(answered?.awaiting).toBe(false);
+	});
+
+	it("finds Grok Build sessions on disk: one folder per cwd, one per session id", async () => {
+		const { mkdtempSync, mkdirSync, writeFileSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		const root = mkdtempSync(join(tmpdir(), "rma-grok-"));
+		const enc = encodeURIComponent("/repo");
+		const id = "01a0d530-4c9a-7782-b980-1dc79bc04e29";
+		const dir = join(root, enc, id);
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(join(dir, "chat_history.jsonl"), [userQuery("add tests"), grokLine({ type: "assistant", content: "On it.", model_id: "grok-4.5" })].join("\n"));
+		writeFileSync(join(dir, "summary.json"), JSON.stringify({ info: { id, cwd: "/repo" } }));
+		writeFileSync(join(dir, "usage.json"), JSON.stringify({ session: { inputTokens: 10, outputTokens: 5, cachedReadTokens: 0, cacheCreationTokens: 0 } }));
+		const { readGrokSessions } = await import("../src/sessions");
+		const sessions = readGrokSessions(root, 60 * 60_000, Date.now());
+		expect(sessions).toHaveLength(1);
+		expect(sessions[0]).toMatchObject({ id, agent: "grok", cwd: "/repo", title: "add tests", tokens: { used: 15, cached: 0 } });
+	});
+
+	it("shows why a Grok turn failed instead of thinking forever", async () => {
+		const { mkdtempSync, mkdirSync, writeFileSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		const root = mkdtempSync(join(tmpdir(), "rma-grok-err-"));
+		const id = "3d5e4e6b-9d17-4eda-a033-9413c94a3b51";
+		const dir = join(root, encodeURIComponent("/repo"), id);
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(join(dir, "chat_history.jsonl"), userQuery("hello"));
+		const done = (stop: string, result: string) => JSON.stringify({ method: "_x.ai/session/update", params: { sessionId: id, update: { sessionUpdate: "turn_completed", stop_reason: stop, agent_result: result }, _meta: { agentTimestampMs: Date.now() } } });
+		writeFileSync(join(dir, "updates.jsonl"), [done("end_turn", "ok"), done("error", "API error (status 402 Payment Required): Grok Build usage balance exhausted")].join("\n"));
+		const { readGrokSessions, grokTurnError } = await import("../src/sessions");
+		const [s] = readGrokSessions(root, 60 * 60_000, Date.now());
+		expect(s.doing).toBe("Error");
+		expect(s.feed.at(-1)).toMatchObject({ who: "agent", text: expect.stringContaining("usage balance exhausted") });
+		writeFileSync(join(dir, "updates.jsonl"), [done("error", "x"), done("end_turn", "ok")].join("\n"));
+		expect(grokTurnError(dir)).toBeUndefined();
+	});
+});
+
+describe("hover pop-ups", () => {
+	it("opens no pop-up when it has nothing to show, like a tool row", async () => {
+		const { PAGE } = await import("../src/page");
+		expect(PAGE).toContain('const v=popView(chip.dataset.pop,s);if(!v)return;');
+	});
+});
+
 describe("send", () => {
 	it("sends a message to the session and refuses empty text or a second send while one is on its way", async () => {
 		const s = parseSession("a", [ask("hi"), edit("/repo/x.ts")], now);
@@ -209,6 +331,145 @@ describe("send", () => {
 		expect(checksOf([{ conclusion: "FAILURE" }, { status: "IN_PROGRESS" }])).toBe("fail");
 	});
 
+	it("names tools the way a person would", async () => {
+		const { toolLabel } = await import("../src/sessions");
+		expect(toolLabel("mcp__Claude_Browser__browser_batch")).toBe("Browser actions");
+		expect(toolLabel("mcp__Claude_Browser__computer", { action: "screenshot" })).toBe("Browser screenshot");
+		expect(toolLabel("mcp__claude-in-chrome__navigate")).toBe("Chrome open page");
+		expect(toolLabel("mcp__ccd_turn__wrap_up")).toBe("Wrap-up");
+		expect(toolLabel("mcp__toolradar__search_tools")).toBe("Toolradar search tools");
+		expect(toolLabel("Grep")).toBe("Search");
+		expect(toolLabel("Bash")).toBe("Bash");
+	});
+
+	it("follows the agent's plan, subagents, background commands, hooks and permission mode", () => {
+		const tool = (name: string, input: object, id = "t") => line({ type: "assistant", message: { content: [{ type: "tool_use", id, name, input }] } });
+		const s = parseSession("act", [
+			line({ type: "user", permissionMode: "auto", message: { content: "go" } }),
+			tool("mcp__ccd_turn__update_plan", { items: [{ content: "a", status: "in_progress" }, { content: "b", status: "pending" }, { content: "c", status: "pending" }] }),
+			tool("mcp__ccd_turn__update_plan", { advance: true }),
+			tool("Agent", { description: "Look around", subagent_type: "Explore" }, "ag1"),
+			tool("Agent", { description: "Write tests" }, "ag2"),
+			line({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "ag1", content: "ok" }] } }),
+			tool("Bash", { command: "bun dev", description: "Start dev server", run_in_background: true }),
+			line({ type: "system", subtype: "stop_hook_summary", hookCount: 1, hookErrors: ["x"], hookInfos: [{ command: "'/a b/notify.sh' stop" }] }),
+		], now);
+		expect(s?.mode).toBe("auto");
+		expect(s?.plan?.map((x) => x.status)).toEqual(["completed", "in_progress", "pending"]);
+		expect(s?.agents?.map((a) => [a.what, a.done])).toEqual([["Look around", true], ["Write tests", false]]);
+		expect(s?.bg?.[0].what).toBe("Start dev server");
+		expect(s?.hooks).toEqual({ runs: 1, errors: 1, last: "notify.sh" });
+	});
+
+	it("counts edit sizes, the context window and when you last wrote", async () => {
+		const { editSize } = await import("../src/sessions");
+		expect(editSize("Edit", { old_string: "a\nb", new_string: "a\nb\nc" })).toEqual({ add: 3, del: 2 });
+		expect(editSize("Write", { content: "x\ny" })).toEqual({ add: 2, del: 0 });
+		expect(editSize("MultiEdit", { edits: [{ old_string: "a", new_string: "b" }, { old_string: "c", new_string: "d\ne" }] })).toEqual({ add: 3, del: 2 });
+		const s = parseSession("ctx", [
+			line({ type: "user", timestamp: "2026-11-01T12:00:00Z", message: { content: "go" } }),
+			line({ type: "assistant", message: { usage: { input_tokens: 10, cache_read_input_tokens: 90_000, cache_creation_input_tokens: 5_000, output_tokens: 7 }, content: [{ type: "text", text: "ok" }] } }),
+			line({ type: "system", subtype: "compact_boundary" }),
+		], now);
+		expect([s?.context, s?.compacts, s?.asked]).toEqual([95_010, 1, Date.parse("2026-11-01T12:00:00Z")]);
+	});
+
+	it("keeps UMUX-Lite ratings on this computer and refuses bad ones", async () => {
+		const { mkdtempSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		process.env.RUN_MY_AGENTS_DIR = mkdtempSync(`${tmpdir()}/rma-umux-`);
+		const app = createApp(() => []);
+		const post = (b: object) => app.request("/api/umux", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) });
+		expect((await post({ q1: 0, q2: 5 })).status).toBe(400);
+		expect((await post({ q1: 6, q2: 7 })).status).toBe(200);
+		expect((await (await app.request("/api/umux")).json()).ratings.map((r: { q1: number; q2: number }) => [r.q1, r.q2])).toEqual([[6, 7]]);
+	});
+
+	it("keeps what each tool call actually ran", async () => {
+		const { callDetail } = await import("../src/sessions");
+		expect(callDetail("Bash", { command: "bun test", description: "Run the tests" })).toEqual({ what: "Run the tests", detail: "bun test" });
+		expect(callDetail("Read", { file_path: "/repo/a.ts" })).toEqual({ detail: "/repo/a.ts" });
+		expect(callDetail("Grep", { pattern: "TODO", path: "src" })).toEqual({ detail: "TODO  in src" });
+		expect(callDetail("WebFetch", { url: "https://x.dev", prompt: "read it" })).toEqual({ what: "read it", detail: "https://x.dev" });
+		const tool = (command: string) => line({ type: "assistant", message: { content: [{ type: "tool_use", id: command, name: "Bash", input: { command } }] } });
+		const s = parseSession("calls", [ask("go"), tool("ls"), tool("git status"), tool("bun test")], now);
+		expect(s?.feed.at(-1)?.calls?.map((c) => c.detail)).toEqual(["ls", "git status", "bun test"]);
+	});
+
+	it("runs a board message in the session's own permission mode unless you picked one", async () => {
+		const { boardMode } = await import("../src/index");
+		expect(boardMode({ mode: "bypassPermissions" })).toBe("bypassPermissions");
+		expect(boardMode({ mode: "auto" })).toBe("auto");
+		// Plan mode is kept: the board never widens a session's own permissions.
+		expect(boardMode({ mode: "plan" })).toBe("plan");
+		expect(boardMode({ mode: "default" })).toBe("acceptEdits");
+		expect(boardMode({})).toBe("acceptEdits");
+		expect(boardMode({ mode: "bypassPermissions", tune: { mode: "default" } })).toBe("default");
+	});
+
+	it("resumes a session on its own model unless you picked one on the board", async () => {
+		const { boardModel } = await import("../src/index");
+		expect(boardModel({ agent: "claude", model: "claude-opus-5-5" })).toBe("claude-opus-5-5");
+		expect(boardModel({ agent: "claude", model: "claude-opus-5-5", tune: { model: "haiku" } })).toBe("haiku");
+		expect(boardModel({ agent: "claude", model: "<synthetic>" })).toBeUndefined();
+		expect(boardModel({ agent: "codex", model: "gpt-6" })).toBeUndefined();
+	});
+
+	it("starts agents without the Claude Code session variables the board inherited, so they use their own login", async () => {
+		const { sendToSession } = await import("../src/index");
+		const s = parseSession("a", [ask("hi"), edit("/repo/x.ts")], now);
+		const keep = { ...process.env };
+		Object.assign(process.env, { CLAUDECODE: "1", CLAUDE_CODE_ENTRYPOINT: "claude-desktop", CLAUDE_CODE_SDK_HAS_HOST_AUTH_REFRESH: "1", RMA_KEEP_ME: "yes" });
+		let env: NodeJS.ProcessEnv | undefined;
+		const fake = ((_: string, __: string[], o: { env?: NodeJS.ProcessEnv }) => {
+			env = o.env;
+			const child = new (require("node:events").EventEmitter)();
+			child.stdin = { end: () => setTimeout(() => child.emit("close"), 0) };
+			return child;
+		}) as never;
+		try {
+			if (s) await sendToSession(s, "hi", fake);
+		} finally {
+			for (const k of ["CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SDK_HAS_HOST_AUTH_REFRESH", "RMA_KEEP_ME"]) if (!(k in keep)) delete process.env[k];
+			Object.assign(process.env, keep);
+		}
+		expect(Object.keys(env ?? {}).filter((k) => /^CLAUDE/.test(k))).toEqual([]);
+		expect(env?.RMA_KEEP_ME).toBe("yes");
+		expect(env?.HOME).toBe(process.env.HOME);
+	});
+
+	it("starts kitchen agents with their repo's settings only, the kitchen's skills, and piped commands allowed (#249)", async () => {
+		const { mkdtempSync, realpathSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		process.env.RUN_MY_AGENTS_DIR = mkdtempSync(join(tmpdir(), "rma-kflags-"));
+		process.env.RUN_MY_AGENTS_SKILLS_DIR = mkdtempSync(join(tmpdir(), "rma-kflags-skills-"));
+		const { sendToSession, startNewSession } = await import("../src/index");
+		const { KITCHEN_TOOLS } = await import("../src/kitchen/containers");
+		const { dataDir } = await import("../src/prefs");
+		let args: string[] = [];
+		const fake = ((_: string, a: string[]) => {
+			args = a;
+			const child = new (require("node:events").EventEmitter)();
+			child.stdin = { end: () => setTimeout(() => child.emit("close"), 0) };
+			return child;
+		}) as never;
+		const home = join(dataDir(), "kitchen-home");
+		const flags = (a: string[]) => [a[a.indexOf("--setting-sources") + 1], a[a.indexOf("--add-dir", a.indexOf("--setting-sources")) + 1]];
+		await startNewSession({ agent: "claude", cwd: "/repo", text: "go", id: "k1", allow: KITCHEN_TOOLS }, fake);
+		expect(flags(args)).toEqual(["project,local", home]);
+		// The kitchen's skills come in through that folder, since the user's own settings (and so their skills) are left out.
+		expect(realpathSync(join(home, ".claude", "skills"))).toBe(realpathSync(process.env.RUN_MY_AGENTS_SKILLS_DIR));
+		const s = parseSession("k2", [ask("hi")], now);
+		if (s) await sendToSession({ ...s, title: "Build · flisk 3125" }, "go", fake);
+		expect(flags(args)).toEqual(["project,local", home]);
+		// Your own chats keep your settings.
+		if (s) await sendToSession({ ...s, title: "My chat" }, "go", fake);
+		expect(args).not.toContain("--setting-sources");
+		// Each part of `find . -name x | grep y | head -5` and `… 2>&1 | tail` is allowed.
+		for (const c of ["find", "grep", "head", "tail", "wc", "sort", "sed", "awk", "echo", "xargs"]) expect(KITCHEN_TOOLS).toContain(`Bash(${c}:*)`);
+	});
+
 	it("puts the prompt on stdin, not in the command line", async () => {
 		const { sendToSession } = await import("../src/index");
 		const s = parseSession("a", [ask("hi"), edit("/repo/x.ts")], now);
@@ -223,6 +484,29 @@ describe("send", () => {
 		expect(seen?.args).toEqual(["-p", "--resume", "a", "--permission-mode", "acceptEdits"]);
 		expect(seen?.stdin).toBe("-rf everything");
 	});
+
+	it("writes Grok's prompt to a --prompt-file, since it has no stdin prompt mode, and cleans it up", async () => {
+		const { sendToSession } = await import("../src/index");
+		const { readFileSync, existsSync } = await import("node:fs");
+		const s = { id: "01a0d530-4c9a-7782-b980-1dc79bc04e29", agent: "grok", cwd: "/repo", tune: {}, mode: "acceptEdits", edits: [] } as never;
+		let seen: { cmd: string; args: string[] } | undefined;
+		let promptFile = "";
+		let promptSeenByGrok = "";
+		const fake = ((cmd: string, args: string[]) => {
+			seen = { cmd, args };
+			promptFile = args[args.indexOf("--prompt-file") + 1];
+			promptSeenByGrok = readFileSync(promptFile, "utf8");
+			const child = new (require("node:events").EventEmitter)();
+			setTimeout(() => child.emit("close"), 0);
+			return child;
+		}) as never;
+		await sendToSession(s, "-rf everything", fake);
+		expect(seen?.cmd).toBe("grok");
+		expect(seen?.args).toEqual(["--cwd", "/repo", "--resume", "01a0d530-4c9a-7782-b980-1dc79bc04e29", "--output-format", "json", "--permission-mode", "acceptEdits", "--prompt-file", promptFile]);
+		expect(seen?.args.join(" ")).not.toContain("-rf everything");
+		expect(promptSeenByGrok).toBe("-rf everything");
+		expect(existsSync(promptFile)).toBe(false);
+	});
 });
 
 describe("page", () => {
@@ -230,6 +514,17 @@ describe("page", () => {
 		const { PAGE } = await import("../src/page");
 		const js = PAGE.split("<script>")[1].split("</script>")[0];
 		expect(() => new Function(js)).not.toThrow();
+	});
+
+	it("keeps the plan popover open while its bowling lane is rolling, so a pin gets the chance to fall", async () => {
+		const { PAGE } = await import("../src/page");
+		// The roll takes a couple of seconds; a stray mouseout used to close the popover (and tear down the WebGL
+		// canvas) long before any pin could fall. The hover-away and click-away closers must both check for a
+		// live ".bowl canvas" and skip closing while it is there; a click on the chip, elsewhere, or Escape still
+		// closes it (those paths are unchanged and still covered by the click/mouseover listeners below).
+		expect(PAGE).toContain('if(p.querySelector(".bowl canvas"))return;apT=setTimeout(hideAct,250)');
+		expect(PAGE).toContain('!apEl.querySelector(".bowl canvas")');
+		expect(PAGE).toContain('document.addEventListener("click",e=>{if(apEl&&!e.target.closest(".apop")&&!e.target.closest("[data-pop]"))hideAct()});');
 	});
 });
 
@@ -261,6 +556,41 @@ describe("typing box", () => {
 		// the dots keep their own .typing rule
 		expect(PAGE).toContain(".typing{display:flex");
 	});
+	it("makes the plain design a light theme with no mascots, and gives its new-session dialog button rows", async () => {
+		const { PAGE } = await import("../src/page");
+		expect(PAGE).toMatch(/body\.plain\{--text:#1f2328[^}]*color-scheme:light/);
+		expect(PAGE).toMatch(/body\.plain \.av,[^{]*\{display:none!important/);
+		// the header wraps, so the action buttons cannot squeeze the session title
+		expect(PAGE).toMatch(/body\.plain \.hd\{[^}]*flex-wrap:wrap/);
+		expect(PAGE).toContain('design==="plain"?H("div",{class:"pp",style:"flex:1"},H(PlainTune,{cm:"",ce:""}))');
+	});
+	it("draws a plain agent panel with text controls and a tooltip on each", async () => {
+		const { PAGE } = await import("../src/page");
+		const panel = PAGE.split("function ModelSeg(")[1].split("function tune(")[0];
+		for (const hook of ['"data-model":', '"data-effort":', '"data-sw":"pin"', '"data-sw":"mute"', '"data-mrole":', '"data-tile":', '"data-copy":"name"', '"data-copy":"id"', '"data-copy":"resume"', '"data-close":"1"', '"data-del":"1"']) {
+			expect(panel.split(hook)[1].slice(0, 200)).toContain('"data-tip":');
+		}
+		expect(panel).not.toContain("<svg");
+		expect(PAGE).toContain('design==="plain"?PlainPanel:GaugePanel,{s}');
+	});
+	it("offers a plain design that drops glow and animation, and remembers the choice", async () => {
+		const { PAGE } = await import("../src/page");
+		expect(PAGE).toContain('"data-design":k');
+		expect(PAGE).toContain('localStorage.setItem("rma-design",design)');
+		expect(PAGE).toMatch(/body\.plain \*,[^{]*\{animation:none!important/);
+		expect(PAGE).toContain('P("Resume cmd","Resume command")');
+	});
+	it("gives every control in the agent panel a hover tooltip", async () => {
+		const { PAGE } = await import("../src/page");
+		const panel = PAGE.split("function GaugePanel({s}){")[1].split("function tune(")[0];
+		for (const hook of ['"data-sw":"pin"', '"data-sw":"mute"', '"data-tile":', '"data-copy":"name"', '"data-copy":"id"', '"data-copy":"resume"', '"data-close":"1"', '"data-del":"1"', '"data-mrole":""']) {
+			expect(panel).toContain(hook);
+			expect(panel.split(hook)[1].slice(0, 200)).toContain('"data-tip":');
+		}
+		expect(PAGE).toContain('id="tip"');
+		expect(PAGE).toMatch(/class:"mdot","data-tip":/);
+		expect(PAGE).toMatch(/"data-effort":e,"data-tip":/);
+	});
 });
 
 describe("motion and model tags", () => {
@@ -275,6 +605,21 @@ describe("motion and model tags", () => {
 });
 
 describe("claude desktop pins and names", () => {
+	it("shows a session the app lists before its transcript exists, like a new sub-session", async () => {
+		const { waitingSessions } = await import("../src/sessions");
+		const now = 1_000_000_000;
+		const m = (o: Record<string, unknown>) => ({ title: "", pinned: false, archived: false, effort: "", at: now - 1000, prs: [], branches: [], cwd: "/w", ...o });
+		const meta = new Map([
+			["cli-new", m({ title: "Run-my-agents card: smaller badges" })],
+			["cli-has", m({ title: "Has a transcript" })],
+			["cli-arch", m({ archived: true })],
+			["cli-old", m({ at: now - 2 * 60 * 60_000 })],
+		]);
+		const out = waitingSessions(meta, new Set(["cli-has"]), now);
+		expect(out.map((s) => s.id)).toEqual(["cli-new"]);
+		expect(out[0]).toMatchObject({ title: "Run-my-agents card: smaller badges", cwd: "/w", doing: "Starting", viaApp: true, updatedAt: now - 1000 });
+	});
+
 	it("reads the app's names and pins, keyed by the CLI session id", async () => {
 		const { mkdtempSync, mkdirSync, writeFileSync } = await import("node:fs");
 		const { tmpdir } = await import("node:os");
@@ -288,8 +633,8 @@ describe("claude desktop pins and names", () => {
 		writeFileSync(join(dir, "local_b.json"), JSON.stringify({ sessionId: "local_b", cliSessionId: "cli-b", title: "Ghostfolio", isArchived: true }));
 		writeFileSync(join(dir, "local_c.json"), "not json");
 		const meta = readDesktopMeta(root);
-		expect(meta.get("cli-a")).toEqual({ title: "Flisk 5-second YouTube Short", pinned: true, archived: false, effort: "", at: 0, prs: [], branches: [] });
-		expect(meta.get("cli-b")).toEqual({ title: "Ghostfolio", pinned: false, archived: true, effort: "", at: 0, prs: [], branches: [] });
+		expect(meta.get("cli-a")).toEqual({ title: "Flisk 5-second YouTube Short", pinned: true, archived: false, effort: "", at: 0, prs: [], branches: [], cwd: "" });
+		expect(meta.get("cli-b")).toEqual({ title: "Ghostfolio", pinned: false, archived: true, effort: "", at: 0, prs: [], branches: [], cwd: "" });
 		expect(meta.size).toBe(2);
 	});
 
@@ -306,19 +651,22 @@ describe("new sessions and agent types", () => {
 		app.request(path, { method: "POST", headers: J, body: JSON.stringify(body) });
 
 	it("detects the agent type from the text, and the AI when it is named", async () => {
-		const app = createApp(() => [], undefined, { which: () => ({ claude: true, codex: true }) });
+		const app = createApp(() => [], undefined, { which: () => ({ claude: true, codex: true, grok: false }) });
 		expect(await (await app.request("/api/detect?text=" + encodeURIComponent("cut the demo video"))).json()).toEqual({ role: "Video", agent: null });
 		expect((await (await app.request("/api/detect?text=" + encodeURIComponent("ask codex to fix sitemap"))).json()).agent).toBe("codex");
-		const noCodex = createApp(() => [], undefined, { which: () => ({ claude: true, codex: false }) });
+		const noCodex = createApp(() => [], undefined, { which: () => ({ claude: true, codex: false, grok: false }) });
 		expect((await (await noCodex.request("/api/detect?text=use+codex")).json()).agent).toBeNull();
+		const withGrok = createApp(() => [], undefined, { which: () => ({ claude: true, codex: false, grok: true }) });
+		expect((await (await withGrok.request("/api/detect?text=" + encodeURIComponent("ask grok to fix it"))).json()).agent).toBe("grok");
+		expect((await (await noCodex.request("/api/detect?text=ask+grok")).json()).agent).toBeNull();
 	});
 
 	it("offers installed agents, recent folders and every type with its face", async () => {
 		const s = parseSession("a", [ask("hi"), edit("/repo/x.ts")], now);
-		const app = createApp(() => (s ? [s] : []), undefined, { which: () => ({ claude: true, codex: false }) });
+		const app = createApp(() => (s ? [s] : []), undefined, { which: () => ({ claude: true, codex: false, grok: false }) });
 		const o = await (await app.request("/api/options")).json();
 		expect(o.defaultAgent).toBe("claude");
-		expect(o.agents).toEqual({ claude: true, codex: false });
+		expect(o.agents).toEqual({ claude: true, codex: false, grok: false });
 		expect(o.folders).toEqual(["/repo"]);
 		expect(o.roles.map((r: { role: string }) => r.role)).toContain("Video");
 	});
@@ -330,7 +678,7 @@ describe("new sessions and agent types", () => {
 		const dir = mkdtempSync(join(tmpdir(), "rma-new-"));
 		process.env.RUN_MY_AGENTS_DIR = mkdtempSync(join(tmpdir(), "rma-prefs-"));
 		let seen: { agent: string; cwd: string; text: string; model?: string; id?: string } | undefined;
-		const app = createApp(() => [], undefined, { which: () => ({ claude: true, codex: true }), start: async (n) => { seen = n; } });
+		const app = createApp(() => [], undefined, { which: () => ({ claude: true, codex: true, grok: false }), start: async (n) => { seen = n; } });
 		const res = await post(app, "/api/new", { agent: "claude", cwd: dir, text: "cut the demo", role: "Video", model: "haiku" });
 		expect(res.status).toBe(202);
 		const { id } = await res.json();
@@ -343,9 +691,49 @@ describe("new sessions and agent types", () => {
 			{ agent: "claude", cwd: dir, text: "x", role: "Wizard" },
 		])
 			expect((await post(app, "/api/new", bad)).status).toBe(400);
-		const none = createApp(() => [], undefined, { which: () => ({ claude: false, codex: false }) });
+		const none = createApp(() => [], undefined, { which: () => ({ claude: false, codex: false, grok: false }) });
 		expect((await post(none, "/api/new", { agent: "claude", cwd: dir, text: "x" })).status).toBe(400);
 		expect((await app.request("/api/new", { method: "POST", body: "text=x" })).status).toBe(403);
+	});
+
+	it("starts a Grok session with a board-chosen id, like Claude", async () => {
+		const { mkdtempSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		const dir = mkdtempSync(join(tmpdir(), "rma-new-grok-"));
+		let seen: { agent: string; cwd: string; text: string; id?: string } | undefined;
+		const app = createApp(() => [], undefined, { which: () => ({ claude: true, codex: true, grok: true }), start: async (n) => { seen = n; }, grokAuth: () => true });
+		const res = await post(app, "/api/new", { agent: "grok", cwd: dir, text: "scaffold a widget" });
+		expect(res.status).toBe(202);
+		const { id } = await res.json();
+		expect(id).toMatch(/^[\w-]{10,}$/);
+		expect(seen).toMatchObject({ agent: "grok", cwd: dir, text: "scaffold a widget", id });
+		const notInstalled = createApp(() => [], undefined, { which: () => ({ claude: true, codex: true, grok: false }) });
+		const res2 = await post(notInstalled, "/api/new", { agent: "grok", cwd: dir, text: "x" });
+		expect(res2.status).toBe(400);
+		expect((await res2.json()).error).toBe("Grok Build is not installed on this computer.");
+		expect((await post(app, "/api/new", { agent: "gemini", cwd: dir, text: "x" })).status).toBe(400);
+	});
+
+	it("says Grok is not signed in instead of starting a session that never shows up", async () => {
+		const { mkdtempSync, writeFileSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		const { grokSignedIn } = await import("../src/index");
+		const dir = mkdtempSync(join(tmpdir(), "rma-grok-auth-"));
+		let started = false;
+		const app = createApp(() => [], undefined, { which: () => ({ claude: true, codex: true, grok: true }), start: async () => { started = true; }, grokAuth: () => false });
+		const res = await post(app, "/api/new", { agent: "grok", cwd: dir, text: "x" });
+		expect(res.status).toBe(400);
+		expect((await res.json()).error).toContain("not signed in");
+		expect(started).toBe(false);
+		const g = { id: "01a0d530-4c9a-7782-b980-1dc79bc04e29", agent: "grok", cwd: dir, edits: [], feed: [] } as never;
+		const sent = await post(createApp(() => [g], async () => {}, { grokAuth: () => false }), "/api/send", { id: "01a0d530-4c9a-7782-b980-1dc79bc04e29", text: "hi" });
+		expect(sent.status).toBe(400);
+		expect(grokSignedIn({ GROK_HOME: dir })).toBe(false);
+		expect(grokSignedIn({ GROK_HOME: dir, XAI_API_KEY: "k" })).toBe(true);
+		writeFileSync(join(dir, "auth.json"), "{}");
+		expect(grokSignedIn({ GROK_HOME: dir })).toBe(true);
 	});
 
 	it("puts the prompt on stdin and never in the command line, for both AIs", async () => {
@@ -367,6 +755,27 @@ describe("new sessions and agent types", () => {
 		expect(x.stdin).toBe("do it");
 	});
 
+	it("starts a new Grok session with a chosen id, its prompt in a file", async () => {
+		const { startNewSession } = await import("../src/index");
+		const { readFileSync, existsSync } = await import("node:fs");
+		let seen: { cmd: string; args: string[] } | undefined;
+		let promptFile = "";
+		let promptSeenByGrok = "";
+		const fake = ((cmd: string, args: string[]) => {
+			seen = { cmd, args };
+			promptFile = args[args.indexOf("--prompt-file") + 1];
+			promptSeenByGrok = readFileSync(promptFile, "utf8");
+			const child = new (require("node:events").EventEmitter)();
+			setTimeout(() => child.emit("close"), 0);
+			return child;
+		}) as never;
+		await startNewSession({ agent: "grok", cwd: "/tmp", text: "scaffold the project", id: "01a0d892-323a-78c2-b0c6-7f654f5657af" }, fake);
+		expect(seen?.cmd).toBe("grok");
+		expect(seen?.args).toEqual(["--cwd", "/tmp", "--session-id", "01a0d892-323a-78c2-b0c6-7f654f5657af", "--output-format", "json", "--permission-mode", "acceptEdits", "--prompt-file", promptFile]);
+		expect(promptSeenByGrok).toBe("scaffold the project");
+		expect(existsSync(promptFile)).toBe(false);
+	});
+
 	it("lets you retype an existing session, and go back to the board's guess", async () => {
 		const { mkdtempSync } = await import("node:fs");
 		const { tmpdir } = await import("node:os");
@@ -382,6 +791,24 @@ describe("new sessions and agent types", () => {
 		s = (await (await app.request("/api/sessions")).json()).sessions[0];
 		expect([s.role, s.roleSet]).toEqual(["Code", undefined]);
 		expect((await post(app, "/api/role", { id: "s1", role: "Wizard" })).status).toBe(400);
+	});
+
+	it("lets you rename a session, and go back to its own title", async () => {
+		const { mkdtempSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		process.env.RUN_MY_AGENTS_DIR = mkdtempSync(join(tmpdir(), "rma-names-"));
+		const { applyNames } = await import("../src/prefs");
+		const fresh = () => [parseSession("s1", [ask("tune the parser")], now)].filter((s) => s !== undefined);
+		const app = createApp(() => applyNames(fresh()));
+		expect((await post(app, "/api/name", { id: "s1", name: "  Payments cleanup  " })).status).toBe(200);
+		let s = (await (await app.request("/api/sessions")).json()).sessions[0];
+		expect([s.title, s.titleSet]).toEqual(["Payments cleanup", true]);
+		await post(app, "/api/name", { id: "s1", name: "" });
+		s = (await (await app.request("/api/sessions")).json()).sessions[0];
+		expect([s.title, s.titleSet]).toEqual(["tune the parser", undefined]);
+		expect((await post(app, "/api/name", { id: "nope", name: "x" })).status).toBe(404);
+		expect((await post(app, "/api/name", { id: "s1", name: "x".repeat(121) })).status).toBe(400);
 	});
 
 	it("gives a just-started Codex session the type chosen for it once it appears", async () => {
@@ -431,8 +858,8 @@ describe("local only", () => {
 describe("typing box: fairies, drafts and hot reload", () => {
 	it("keeps the fairies in their own strip above the text row, flying at a steady pace", async () => {
 		const { PAGE } = await import("../src/page");
-		expect(PAGE).toContain('<div class="sky"><div class="fairy">');
-		expect(PAGE).toContain('</div></div><div class="atray" id="atray"></div><div class="row">');
+		expect(PAGE).toContain('H("div",{class:"sky"},H(Fairy),H(Fairy,{cls:" f2"}))');
+		expect(PAGE).toContain('H("div",{class:"atray",id:"atray"}),\n H("div",{class:"row"}');
 		expect(PAGE).not.toMatch(/\.compose:focus-within \.fairy/);
 		expect(PAGE).not.toMatch(/\.fairy[^{]*\{[^}]*animation-duration:4s/);
 		const js = PAGE.split("<script>")[1].split("</script>")[0];
@@ -531,7 +958,7 @@ describe("right-click gauges panel and animated controls", () => {
 		const { PAGE } = await import("../src/page");
 		const js = PAGE.split("<script>")[1].split("</script>")[0];
 		expect(() => new Function(js)).not.toThrow();
-		for (const part of ['addEventListener("contextmenu"', "e.preventDefault()", "function gaugePanel(", "function dialHtml(", "function ledsHtml(", 'data-sw="pin"', 'data-tile="', ".cmenu.gp{", "function showPanel(", 'tg==="TEXTAREA"']) expect(PAGE).toContain(part);
+		for (const part of ['addEventListener("contextmenu"', "e.preventDefault()", "function GaugePanel(", "function dialHtml(", "function ledsHtml(", '"data-sw":"pin"', '"data-tile":', ".cmenu.gp{", "function showPanel(", 'tg==="TEXTAREA"']) expect(PAGE).toContain(part);
 	});
 
 	it("uses no native dropdowns, checkboxes, number boxes or datalists anywhere", async () => {
@@ -632,7 +1059,7 @@ describe("header", () => {
 		const { PAGE } = await import("../src/page");
 		const js = PAGE.split("<script>")[1].split("</script>")[0];
 		expect(() => new Function(js)).not.toThrow();
-		for (const part of ["function hb(", 'class="mchips"', 'data-ctext="', ".hb span:hover", ".mc:hover", ".hd::after", ".proj span{", ".cnt i{", ".btn:active", "const IC="]) expect(PAGE).toContain(part);
+		for (const part of ["function hb(", 'class:"mchips"', '"data-ctext":', ".hb span:hover", ".mc:hover", ".hd::after", ".proj span{", ".cnt i{", ".btn:active", "const IC="]) expect(PAGE).toContain(part);
 	});
 });
 
@@ -661,6 +1088,25 @@ describe("file upload", () => {
 		expect((await upload(app, "id=../x&name=a", new Uint8Array([1]))).status).toBe(400);
 		expect((await upload(app, "id=u1&name=a", new Uint8Array([]))).status).toBe(400);
 		expect((await upload(app, "id=u1&name=a", new Uint8Array([1]), { "x-run-my-agents": "1", "content-length": String(30 * 1024 * 1024) })).status).toBe(413);
+	});
+
+	it("takes files for a session or an order that does not exist yet, and a new session gets them in its prompt", async () => {
+		const { mkdtempSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		const data = mkdtempSync(join(tmpdir(), "rma-up-"));
+		process.env.RUN_MY_AGENTS_DIR = data;
+		const cwd = mkdtempSync(join(tmpdir(), "rma-new-"));
+		let seen: { text: string; dirs?: string[] } | undefined;
+		const app = createApp(() => [], undefined, { which: () => ({ claude: true, codex: true, grok: false }), start: async (n) => { seen = n; } });
+		const n = await (await upload(app, "id=new&name=spec.md", new Uint8Array([1]))).json();
+		expect(n.path.startsWith(join(data, "uploads", "_new"))).toBe(true);
+		const o = await (await upload(app, "id=order&name=shot.png", new Uint8Array([1]))).json();
+		expect(o.path.startsWith(join(data, "kitchen-home", "uploads"))).toBe(true);
+		const res = await app.request("/api/new", { method: "POST", headers: J, body: JSON.stringify({ agent: "claude", cwd, text: "build it", files: [n.path, o.path, "/etc/passwd"] }) });
+		expect(res.status).toBe(202);
+		expect(seen?.text).toBe(`build it\n\nAttached files (saved on this computer, read them with your tools):\n- ${n.path}`);
+		expect(seen?.dirs).toEqual([join(data, "uploads", "_new")]);
 	});
 
 	it("sends only files this board saved for the session, and lets the agent read that folder", async () => {
@@ -699,7 +1145,7 @@ describe("file upload", () => {
 		const { PAGE } = await import("../src/page");
 		const js = PAGE.split("<script>")[1].split("</script>")[0];
 		expect(() => new Function(js)).not.toThrow();
-		for (const part of ['data-act="attach"', "function attachFiles(", 'id="drop"', "x-run-my-agents", ".clip:hover", ".att:hover", "--fit"]) expect(PAGE).toContain(part);
+		for (const part of ['"data-act":"attach"', "function attachFiles(", 'id="drop"', "x-run-my-agents", ".clip:hover", ".att:hover", "--fit"]) expect(PAGE).toContain(part);
 	});
 });
 
@@ -756,6 +1202,25 @@ describe("close and delete", () => {
 		expect(readPins().pinned).toEqual([]);
 	});
 
+	it("deletes a Grok session's whole folder, not only its chat_history.jsonl", async () => {
+		const { existsSync, mkdirSync, writeFileSync, mkdtempSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		const root = mkdtempSync(join(tmpdir(), "rma-del-grok-"));
+		process.env.GROK_SESSIONS_DIR = join(root, "sessions");
+		process.env.RUN_MY_AGENTS_DIR = join(root, "data");
+		const dir = join(root, "sessions", "%2Frepo", "01a0d5a0-5850-7fe3-973d-58bdd00f3236");
+		mkdirSync(dir, { recursive: true });
+		const file = join(dir, "chat_history.jsonl");
+		writeFileSync(file, "x");
+		writeFileSync(join(dir, "summary.json"), "{}");
+		const session = { id: "01a0d5a0-5850-7fe3-973d-58bdd00f3236", agent: "grok", cwd: "/repo", branch: "", title: "t", said: "", doing: "", edits: [], updatedAt: Date.now() - 600_000, role: "Code", pinned: false, feed: [], file, viaApp: false };
+		const app = createApp(() => [session as never]);
+		const res = await post(app, "/api/delete", { id: session.id });
+		expect(res.status).toBe(200);
+		expect(existsSync(dir)).toBe(false);
+	});
+
 	it("refuses to delete a Claude app session, a working one, a file outside the agent's folder, or from another site", async () => {
 		const { existsSync } = await import("node:fs");
 		const { file, root } = await setup();
@@ -778,20 +1243,52 @@ describe("formatted replies, close and delete in the panel, smaller gauges", () 
 		// the embedded renderer is the real one
 		const run = new Function(`${js.slice(0, js.indexOf("const SH="))}; return renderMarkdown("**bold** and \`code\`");`);
 		expect(run()).toBe("<p><strong>bold</strong> and <code>code</code></p>");
-		for (const part of ['class="rich', ".rich pre", ".rich table", ".cpb", 'data-copycode', ".msg .rich.long"]) expect(PAGE).toContain(part);
+		for (const part of ['class:"rich', ".rich pre", ".rich table", ".cpb", 'data-copycode', ".msg .rich.long"]) expect(PAGE).toContain(part);
 		expect(PAGE).not.toContain('(m.text?"<p>"+esc(m.text)+"</p>":"")');
+	});
+
+	it("collapses a long reply to its first and last 2 lines, with a show-more bar between them", async () => {
+		const { PAGE } = await import("../src/page");
+		const js = PAGE.split("<script>")[1].split("</script>")[0];
+		const src = js.slice(js.indexOf("function richHtml("), js.indexOf("function toolRuns("));
+		const richNode = new Function("renderMarkdown", "H", "Frag", `${src}; return richHtml;`)((t: string) => `<p>${t}</p>`, hx, Frag) as (m: { text: string }) => unknown;
+		const richHtml = (m: { text: string }) => ser(richNode(m));
+		const short = richHtml({ text: "one\ntwo\nthree\nfour" });
+		expect(short).toBe('<div class="rich"><p>one\ntwo\nthree\nfour</p></div>');
+		expect(short).not.toContain("rich-prev");
+		const nine = Array.from({ length: 9 }, (_, i) => `line ${i + 1}`).join("\n");
+		const long = richHtml({ text: nine });
+		expect(long).toContain('<div class="rich-prev">');
+		expect(long).toContain("<p>line 1\nline 2</p>");
+		expect(long).toContain("<p>line 8\nline 9</p>");
+		expect(long).toContain("rp-more");
+		expect(long).toContain("5 more line");
+		expect(long).toContain('<div class="rich full">');
+	});
+
+	it("keeps the collapse CSS in place for the fold (chevron) and open states", async () => {
+		const { PAGE } = await import("../src/page");
+		for (const part of [
+			".rich-prev",
+			".rp-more",
+			".msg .rich.full{display:none}",
+			".msg.open .rich.full{display:block",
+			".msg.open .rich-prev{display:none}",
+			".msg.col .rich-prev .rp-more,.msg.col .rich-prev .rich:last-child{display:none}",
+		])
+			expect(PAGE).toContain(part);
 	});
 
 	it("has Close and Delete in the right-click panel, a Closed group, and a smaller panel", async () => {
 		const { PAGE } = await import("../src/page");
-		for (const part of ['data-close="1"', 'data-del="1"', 'class="dz2"', '["Closed",s=>s.hidden]', "fold={Closed:true}", ".tl2.red.arm", "width:min(288px,94vw)"]) expect(PAGE).toContain(part);
+		for (const part of ['"data-close":"1"', '"data-del":"1"', 'class:"dz2"', '["Closed",s=>s.hidden]', "fold={Closed:true}", ".tl2.red.arm", "width:min(288px,94vw)"]) expect(PAGE).toContain(part);
 	});
 });
 
 describe("chat layout, bigger text and avatar motion", () => {
 	it("puts your messages on the left and the agent's on the right, with small author names", async () => {
 		const { PAGE } = await import("../src/page");
-		for (const part of ['"from-me":"from-ag"', 'class="bub"', 'class="who"', ".msg.from-me{justify-content:flex-end}", ".msg.from-ag{justify-content:flex-start}", ".who{display:flex", ".rich{font-size:14px}", "font:14px/20px var(--body)"]) expect(PAGE).toContain(part);
+		for (const part of ['"from-me":"from-ag"', 'class:"bub"', 'class:"who"', ".msg.from-me{justify-content:flex-end}", ".msg.from-ag{justify-content:flex-start}", ".who{display:flex", ".rich{font-size:14px}", "font:14px/20px var(--body)"]) expect(PAGE).toContain(part);
 		const js = PAGE.split("<script>")[1].split("</script>")[0];
 		expect(() => new Function(js)).not.toThrow();
 	});
@@ -831,7 +1328,7 @@ describe("chat layout, bigger text and avatar motion", () => {
 		let started = "";
 		const list: object[] = [];
 		const app2 = createApp(() => list as never, async () => {}, {
-			which: () => ({ claude: true, codex: false }),
+			which: () => ({ claude: true, codex: false, grok: false }),
 			start: async (n) => {
 				started = n.id ?? "";
 				await new Promise<void>((r) => {
@@ -853,7 +1350,7 @@ describe("class names", () => {
 	it("does not use the model tag's class (md) for the formatted reply text", async () => {
 		const { PAGE } = await import("../src/page");
 		expect(PAGE).toContain("function mtag(");
-		expect(PAGE).toContain('<span class="md" data-mpick=');
+		expect(PAGE).toContain('class:"md","data-mpick":s.id');
 		expect(PAGE).not.toMatch(/\.md (p|code|pre|table|a|ul|li)\b/);
 		expect(PAGE).not.toContain('class="md\'+(m.text.length');
 	});
@@ -905,7 +1402,7 @@ describe("class names, again", () => {
 	it("keeps the chat row classes apart from the small CLAUDE and model tags (ag, md)", async () => {
 		const { PAGE } = await import("../src/page");
 		expect(PAGE).not.toMatch(/\.msg\.(me|ag)\b/);
-		expect(PAGE).toContain('<span class="ag \'+s.agent');
+		expect(PAGE).toContain('H("span",{class:"ag "+s.agent}');
 	});
 });
 
@@ -984,7 +1481,8 @@ describe("model tag switcher, PR hover, chat spacing", () => {
 		const js = PAGE.split("<script>")[1].split("</script>")[0];
 		expect(() => new Function(js)).not.toThrow();
 		const src = js.slice(js.indexOf("const esc="), js.indexOf("const ago=")) + js.slice(js.indexOf("const TIER="), js.indexOf("function motion("));
-		const mtag = new Function(`${src}; return mtag;`)() as (s: object) => string;
+		const mtagNode = new Function("H", "Frag", `${src}; return mtag;`)(hx, Frag) as (s: object) => unknown;
+		const mtag = (s: object) => ser(mtagNode(s));
 		const plain = mtag({ id: "a", model: "claude-opus-5-5" });
 		expect(plain).toContain('data-mpick="a"');
 		expect(plain).toContain("OPUS");
@@ -998,16 +1496,55 @@ describe("model tag switcher, PR hover, chat spacing", () => {
 		expect(PAGE).toContain("e.stopImmediatePropagation()");
 	});
 
+	it("lists the links said in a chat and previews each one", async () => {
+		const { chatLinks, linkPreview } = await import("../src/index");
+		const { mkdtempSync, writeFileSync } = await import("node:fs");
+		const { join } = await import("node:path");
+		const { tmpdir } = await import("node:os");
+		const dir = mkdtempSync(join(tmpdir(), "links-"));
+		const file = join(dir, "t.jsonl");
+		const line = (o: object) => JSON.stringify(o);
+		writeFileSync(
+			file,
+			[
+				line({ type: "user", message: { role: "user", content: "see https://github.com/flisk-sh/run-my-agents." } }),
+				line({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "Opened (https://flisk.sh/docs) and https://github.com/flisk-sh/run-my-agents" }, { type: "tool_use", input: { url: "https://tool.example" } }] } }),
+				line({ type: "user", message: { role: "user", content: [{ type: "tool_result", content: "https://output.example" }] } }),
+			].join("\n"),
+		);
+		const links = chatLinks(file);
+		expect(links.map((l) => l.url)).toEqual(["https://github.com/flisk-sh/run-my-agents", "https://flisk.sh/docs"]);
+		expect(links[0]).toMatchObject({ host: "github.com", who: "agent" });
+		expect(chatLinks(join(dir, "missing.jsonl"))).toEqual([]);
+		const html = '<html><head><title>Fallback</title><meta property="og:title" content="Run my agents &amp; more"><meta name="description" content="A board"><meta property="og:image" content="/card.png"></head></html>';
+		const fake = (async () => new Response(html, { headers: { "content-type": "text/html" } })) as unknown as typeof fetch;
+		expect(await linkPreview("https://preview.example/a", fake)).toMatchObject({ title: "Run my agents & more", description: "A board", image: "https://preview.example/card.png", site: "preview.example" });
+		const broken = (async () => {
+			throw new Error("down");
+		}) as unknown as typeof fetch;
+		expect((await linkPreview("https://down.example/", broken)).error).toBeTruthy();
+		const app = createApp(() => [{ id: "ln1", cwd: "/repo", agent: "claude", file } as never], undefined, { fetch: fake });
+		expect((await (await app.request("/api/links?id=ln1")).json()).links).toHaveLength(2);
+		expect((await app.request("/api/links?id=nope")).status).toBe(404);
+		const { linkCount } = await import("../src/index");
+		expect(linkCount(file)).toBe(2);
+		expect(linkCount(join(dir, "missing.jsonl"))).toBe(0);
+		expect((await app.request("/api/preview?url=file:///etc/passwd")).status).toBe(400);
+		const { PAGE } = await import("../src/page");
+		for (const part of ['"data-links":s.id', "function showLinks(", "function showPv(", 'fetch("api/links?id="', 'fetch("api/preview?url="', ".lnpv{", 'class:"prc lnc","data-links":s.id']) expect(PAGE).toContain(part);
+	});
+
 	it("lists pull requests when you hover the branch", async () => {
 		const { PAGE } = await import("../src/page");
-		for (const part of ["data-prs=", "function showPrs(", 'fetch("api/prs?id="', ".prpop{", ".prr:hover", ".prsk{", 'class="prn"']) expect(PAGE).toContain(part);
+		for (const part of ['"data-prs":', "function showPrs(", 'fetch("api/prs?id="', ".prpop{", ".prr:hover", ".prsk{", 'class:"prn"']) expect(PAGE).toContain(part);
 	});
 
 	it("shows more chat text: tighter spacing, wider bubbles, smaller tool labels that group repeats, no early cut-off", async () => {
 		const { PAGE } = await import("../src/page");
-		for (const part of [".bub{max-width:94%", ".rich p{margin:0 0 4px}", ".tool{font-size:9px", "function toolRuns(", "m.text.length>9000"]) expect(PAGE).toContain(part);
+		for (const part of [".bub{max-width:80%", ".rich p{margin:0 0 4px}", ".tool{font-size:9px", "function toolRuns(", "m.text.length>9000"]) expect(PAGE).toContain(part);
 		const js = PAGE.split("<script>")[1].split("</script>")[0];
-		const runs = new Function("esc", `${js.slice(js.indexOf("function toolRuns("), js.indexOf("function pinSession("))}; return toolRuns;`)((x: string) => x) as (t: string[]) => string;
+		const runNodes = new Function("H", "Frag", "OPEN", `${js.slice(js.indexOf("function toolRuns("), js.indexOf("function pinSession("))}; return toolRuns;`)(hx, Frag, new Set()) as (t: string[]) => unknown;
+		const runs = (t: string[]) => ser(runNodes(t));
 		const html = runs(["Bash", "Bash", "Bash", "Edit page.ts", "Bash"]);
 		expect(html.match(/class="tool"/g)).toHaveLength(3);
 		expect(html).toContain("\u00d73");
@@ -1059,7 +1596,7 @@ describe("choices an agent offers", () => {
 		const { PAGE } = await import("../src/page");
 		const js = PAGE.split("<script>")[1].split("</script>")[0];
 		expect(() => new Function(js)).not.toThrow();
-		for (const part of ["function optsHtml(", "function answer(", 'data-opt="', ".obtn.first", "function armScroll(", "feedHover", "setTimeout(function tick()", 'id="newpill"', ".newpill.on", "messageHandlers.drag", "separate copy"]) expect(PAGE).toContain(part);
+		for (const part of ["function optsHtml(", "function answer(", '"data-opt":l', ".obtn.first", "function armScroll(", "feedHover", "setTimeout(function tick()", 'id="newpill"', ".newpill.on", "messageHandlers.drag", "separate copy"]) expect(PAGE).toContain(part);
 	});
 });
 
@@ -1069,5 +1606,71 @@ describe("a whole turn's text", () => {
 		const b = line({ type: "assistant", message: { content: [{ type: "text", text: "Then I fixed it." }] } });
 		const s = parseSession("t9", [ask("go"), a, line({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "x", content: "" }] } }), b], now);
 		expect(s?.feed.at(-1)?.text).toBe("First I looked.\n\nThen I fixed it.");
+	});
+});
+
+describe("tool chips", () => {
+	// The page script is one string; lift toolRuns out of it and run it with a stub for OPEN and esc.
+	const load = async (open: string[]) => {
+		const html = await (await createApp(() => []).request("/")).text();
+		const src = html.slice(html.indexOf("function toolRuns("));
+		const fn = src.slice(0, src.indexOf("\nfunction pinSession"));
+		const run = new Function("H", "Frag", "OPEN", `${fn}; return toolRuns;`)(hx, Frag, new Set(open)) as (
+			ts: string[],
+			sid: string,
+			fi: number,
+			calls?: { label: string; what?: string; detail: string }[],
+		) => unknown;
+		return (ts: string[], sid: string, fi: number, calls?: { label: string; what?: string; detail: string }[]) => ser(run(ts, sid, fi, calls));
+	};
+	const calls = [{ label: "Bash", what: "run", detail: "ls <dir>" }];
+
+	it("a chip with kept calls toggles inline instead of opening a popup", async () => {
+		const html = (await load([]))(["Bash"], "s1", 2, calls);
+		expect(html).toContain('data-act="toolx"');
+		expect(html).toContain('data-tk="s1:2:0"');
+		expect(html).not.toContain("data-pop");
+		expect(html).not.toContain("clist");
+	});
+
+	it("an open chip lists the commands, escaped", async () => {
+		const html = (await load(["s1:2:0"]))(["Bash"], "s1", 2, calls);
+		expect(html).toContain('class="tool on"');
+		expect(html).toContain("<code>ls &lt;dir&gt;</code>");
+	});
+
+	it("a chip with no kept calls is inert", async () => {
+		const html = (await load(["s1:2:0"]))(["Bash"], "s1", 2, []);
+		expect(html).not.toContain("data-act");
+		expect(html).not.toContain("clist");
+	});
+});
+
+describe("page wiring", () => {
+	const page = async () => await (await createApp(() => []).request("/")).text();
+	const set = (h: string, re: RegExp) => new Set([...h.matchAll(re)].map((m) => m[1]));
+
+	it("is never served from the browser cache", async () => {
+		const r = await createApp(() => []).request("/");
+		// The script is inline, so a cached document runs the old board against the new API.
+		expect(r.headers.get("cache-control")).toBe("no-store");
+	});
+
+	// #193 removed the "calls" popup but left the chips emitting data-pop="calls", so clicking a
+	// tool chip did nothing until #196. Every attribute the markup emits must have a branch.
+	it("every data-act the markup emits has a branch in the click handler", async () => {
+		const h = await page();
+		const emitted = set(h, /data-act(?:="|":")([a-zA-Z]+)"/g);
+		const handled = set(h, /k==="([a-zA-Z]+)"/g);
+		expect(emitted.size).toBeGreaterThan(5);
+		expect([...emitted].filter((k) => !handled.has(k))).toEqual([]);
+	});
+
+	it("every data-pop the markup emits has a branch in popHtml", async () => {
+		const h = await page();
+		const emitted = set(h, /data-pop(?:="|":")([a-zA-Z]+)"/g);
+		const handled = set(h, /kind==="([a-zA-Z]+)"/g);
+		expect(emitted.size).toBeGreaterThan(3);
+		expect([...emitted].filter((k) => !handled.has(k))).toEqual([]);
 	});
 });

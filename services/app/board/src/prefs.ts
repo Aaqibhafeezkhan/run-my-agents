@@ -6,9 +6,10 @@ import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { AGENTS } from "../../web/src/avatars";
+import { KITCHEN_ROLES } from "./kitchen/agents";
 import type { Session } from "./sessions";
 
-export const ROLES: string[] = AGENTS.map((a) => a.role);
+export const ROLES: string[] = [...AGENTS.map((a) => a.role), ...KITCHEN_ROLES];
 
 /** Read on every call, so a different RUN_MY_AGENTS_DIR (tests, a second profile) just works. */
 const dir = () => process.env.RUN_MY_AGENTS_DIR || join(homedir(), ".run-my-agents");
@@ -34,6 +35,41 @@ export function setRole(id: string, role: string | null): void {
 	const tmp = `${file()}.${process.pid}.tmp`;
 	writeFileSync(tmp, JSON.stringify(roles, null, 2));
 	renameSync(tmp, file());
+}
+
+const nameFile = () => join(dir(), "names.json");
+
+/** The names you've typed for sessions in the board, keyed by session id. */
+export function readNames(): Record<string, string> {
+	try {
+		const raw = JSON.parse(readFileSync(nameFile(), "utf8")) as Record<string, unknown>;
+		return Object.fromEntries(Object.entries(raw).filter(([, v]) => typeof v === "string" && v.trim())) as Record<string, string>;
+	} catch {
+		return {};
+	}
+}
+
+/** Gives a session a name you typed, or with null goes back to its own title (the Claude app's, or the first line of the prompt). */
+export function setName(id: string, name: string | null): void {
+	const names = readNames();
+	const clean = (name ?? "").trim().slice(0, 120);
+	if (clean) names[id] = clean;
+	else delete names[id];
+	mkdirSync(dirname(nameFile()), { recursive: true });
+	const tmp = `${nameFile()}.${process.pid}.tmp`;
+	writeFileSync(tmp, JSON.stringify(names, null, 2));
+	renameSync(tmp, nameFile());
+}
+
+/** Applies the names you've chosen in the board, over whatever title the session itself has. */
+export function applyNames(sessions: Session[]): Session[] {
+	const names = readNames();
+	for (const s of sessions)
+		if (names[s.id]) {
+			s.title = names[s.id];
+			s.titleSet = true;
+		}
+	return sessions;
 }
 
 interface Pending {
@@ -108,9 +144,12 @@ export function isPinned(id: string, inApp: boolean): boolean {
 /** The model and effort chosen in the board for an agent. Used for every message the board sends to it. */
 export const TUNE_MODELS = ["haiku", "sonnet", "opus"];
 export const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
+/** Permission modes a message from the board can run in (`claude -p --permission-mode`). */
+export const MODES = ["default", "acceptEdits", "auto", "bypassPermissions"];
 export interface Tune {
 	model?: string;
 	effort?: string;
+	mode?: string;
 }
 const tuneFile = () => join(dir(), "tune.json");
 
@@ -122,7 +161,8 @@ export function readTune(): Record<string, Tune> {
 			const clean: Tune = {};
 			if (t?.model && TUNE_MODELS.includes(t.model)) clean.model = t.model;
 			if (t?.effort && EFFORTS.includes(t.effort)) clean.effort = t.effort;
-			if (clean.model || clean.effort) out[id] = clean;
+			if (t?.mode && MODES.includes(t.mode)) clean.mode = t.mode;
+			if (clean.model || clean.effort || clean.mode) out[id] = clean;
 		}
 		return out;
 	} catch {
@@ -142,7 +182,11 @@ export function setTune(id: string, patch: Tune): Tune {
 		if (patch.effort && EFFORTS.includes(patch.effort)) next.effort = patch.effort;
 		else delete next.effort;
 	}
-	if (next.model || next.effort) all[id] = next;
+	if (patch.mode !== undefined) {
+		if (patch.mode && MODES.includes(patch.mode)) next.mode = patch.mode;
+		else delete next.mode;
+	}
+	if (next.model || next.effort || next.mode) all[id] = next;
 	else delete all[id];
 	mkdirSync(dirname(tuneFile()), { recursive: true });
 	const tmp = `${tuneFile()}.${process.pid}.tmp`;
@@ -183,9 +227,10 @@ export function applyHidden(sessions: Session[]): Session[] {
 	return sessions;
 }
 
-/** Drops everything the board keeps about a session: its type, model, pins, closed state and attached files. */
+/** Drops everything the board keeps about a session: its type, name, model, pins, closed state and attached files. */
 export function forgetSession(id: string): void {
 	setRole(id, null);
+	setName(id, null);
 	setTune(id, { model: "", effort: "" });
 	const p = readPins();
 	mkdirSync(dirname(pinFile()), { recursive: true });

@@ -1,6 +1,10 @@
 // Routes: the home and about pages, the SEO files and icons, the install steps as JSON and over MCP.
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { Hono } from "hono";
 import { ASSETS } from "./assets.generated";
+import { DEMO_FONTS, DEMO_HTML } from "./demo.generated";
+import { gamePage } from "./game";
 import {
 	clientIp,
 	type ProxyMode,
@@ -66,9 +70,6 @@ export function createApp(options: AppOptions = {}) {
 		const host = c.req.header("x-forwarded-host") ?? url.host;
 		return `${proto}://${host}${/^(\/[\w.-]+)+$/.test(prefix) ? prefix : ""}`;
 	};
-	const rootOf = (c: Parameters<typeof baseOf>[0]) =>
-		new URL(`${baseOf(c)}/`).pathname.replace(/\/$/, "");
-
 	const limited = (c: { req: { raw: Request }; env: unknown }) => {
 		const env = c.env as
 			| { requestIP?: (r: Request) => { address: string } | null }
@@ -95,7 +96,7 @@ export function createApp(options: AppOptions = {}) {
 	// For search engines and AI assistants
 	app.get("/robots.txt", (c) => c.text(robotsTxt(baseOf(c))));
 	app.get("/sitemap.xml", (c) => {
-		const paths = ["", "about"];
+		const paths = ["", "about", "play"];
 		return c.body(sitemapXml(baseOf(c), paths, lastmod), 200, {
 			"content-type": "application/xml; charset=utf-8",
 		});
@@ -126,6 +127,59 @@ export function createApp(options: AppOptions = {}) {
 			"content-type": "application/manifest+json",
 		}),
 	);
+	// The board preview on the home page, read once from next to this file.
+	const preview = readFileSync(join(import.meta.dir, "preview.gif"));
+	app.get("/preview.gif", (c) =>
+		c.body(preview as unknown as Uint8Array<ArrayBuffer>, 200, {
+			"content-type": "image/gif",
+			"cache-control": "public, max-age=86400",
+		}),
+	);
+	// The live board demo: the real board page, answering its own API from made-up sessions (see scripts/demo.ts).
+	// It runs JavaScript, so it gets its own policy, and only this site may frame it.
+	const demoCsp =
+		"default-src 'none'; script-src 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'unsafe-inline'; img-src 'self' data:; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
+	app.get("/demo", (c) => c.redirect("/demo/", 301));
+	app.get("/demo/", (c) => {
+		c.header("content-security-policy", demoCsp);
+		c.header("x-robots-tag", "noindex");
+		return c.html(DEMO_HTML);
+	});
+	const demoFonts = Object.fromEntries(
+		Object.entries(DEMO_FONTS).map(([k, v]) => [k, Buffer.from(v, "base64")]),
+	);
+	app.get("/demo/fonts/:file", (c) => {
+		const font = demoFonts[c.req.param("file")];
+		if (!font) return c.notFound();
+		return c.body(font as unknown as Uint8Array<ArrayBuffer>, 200, {
+			"content-type": "font/woff2",
+			"cache-control": "public, max-age=31536000, immutable",
+		});
+	});
+	// The kitchen behind the home page's hero, a screenshot of the board's Kitchen tab.
+	const heroKitchen = readFileSync(join(import.meta.dir, "hero-kitchen.jpg"));
+	app.get("/hero-kitchen.jpg", (c) =>
+		c.body(heroKitchen as unknown as Uint8Array<ArrayBuffer>, 200, {
+			"content-type": "image/jpeg",
+			"cache-control": "public, max-age=3600",
+		}),
+	);
+	// Kitchen Rush, the browser game (see game.ts). One inline script and nothing else; X may frame it, so the
+	// game plays inside a post.
+	const card = readFileSync(join(import.meta.dir, "play-card.png"));
+	app.get("/play/card.png", (c) =>
+		c.body(card as unknown as Uint8Array<ArrayBuffer>, 200, {
+			"content-type": "image/png",
+			"cache-control": "public, max-age=86400",
+		}),
+	);
+	app.get("/play", (c) => {
+		c.header(
+			"content-security-policy",
+			"default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self' https://x.com https://*.x.com https://twitter.com https://*.twitter.com",
+		);
+		return c.html(gamePage(baseOf(c)));
+	});
 	app.get("/.well-known/security.txt", (c) => c.text(securityTxt(baseOf(c))));
 	for (const [name, file] of files)
 		app.get(`/${name}`, (c) =>

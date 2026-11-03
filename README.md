@@ -39,12 +39,18 @@ A `PreToolUse` hook runs before `Edit`, `Write`, `MultiEdit` and `NotebookEdit`.
 |---|---|---|
 | `RUN_MY_AGENTS_TTL_MINUTES` | `10` | How long an edit counts as "recent" |
 | `RUN_MY_AGENTS_DIR` | `~/.run-my-agents` | Where claims are kept |
+| `RUN_MY_AGENTS_MODE` | `warn` | `off` turns the warning off without uninstalling |
+| `RUN_MY_AGENTS_IGNORE` | (none) | Extra comma-separated globs that never warn, like `*.snap,docs/gen/**`. Lockfiles, `*.generated.*`, `dist/` and `node_modules/` are always skipped |
+| `RUN_MY_AGENTS_DEBUG` | (off) | `1` logs every decision and error to `debug.log` in the claims folder |
+
+When a session ends, its claims are dropped, so a finished session never stops anyone.
 
 ## Limits
 
 - One computer only. Sessions on other machines are not seen.
 - Edits made through Bash (`sed`, `echo > file`) are not seen; only Claude's edit tools are.
 - It matches whole files, not functions or lines.
+- It warns, it never locks: a retry after a warning goes through. If the other session edits the file again after you were warned, you are warned again before your next edit, with its session, branch, age and when its claim drops.
 - It needs `node` on your PATH.
 
 ## Test
@@ -83,6 +89,11 @@ skills for its job from the [DevEx Roadmap](https://roadmap.flisk.si) catalog (`
 refreshes `services/app/board/src/skills.json`).
 
 ## Mac app
+
+[Download for macOS](https://github.com/flisk-sh/run-my-agents/releases/latest/download/Run-My-Agents-macOS.zip)
+(Apple Silicon and Intel, macOS 13 or later). The board is built in, so it needs no Bun, Docker, Tilt or Flisk. It
+is not notarized yet: the first time, open it from System Settings, Privacy & Security, Open Anyway. Every `v*` tag
+builds and attaches a new one (`.github/workflows/release-mac.yml`).
 
 `mac/build.sh` builds `mac/build/Run My Agents.app`: the board in a native window, plus a menu bar item. It starts
 the board itself if nothing answers on port 4100. See [mac/README.md](mac/README.md).

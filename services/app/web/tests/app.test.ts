@@ -120,3 +120,96 @@ describe("guards", () => {
 		expect(cache.get("c")).toBeUndefined();
 	});
 });
+
+describe("live board demo", () => {
+	it("serves the real board page with its own script policy, framed only by this site", async () => {
+		const res = await app.request("/demo/");
+		expect(res.status).toBe(200);
+		expect(res.headers.get("content-security-policy")).toContain(
+			"script-src 'unsafe-inline'",
+		);
+		expect(res.headers.get("content-security-policy")).toContain(
+			"frame-ancestors 'self'",
+		);
+		const html = await res.text();
+		expect(html).toContain("Add dark mode to settings");
+		expect(html).toContain("This is a demo.");
+		expect(
+			(await app.request("/demo/fonts/geist.woff2")).headers.get(
+				"content-type",
+			),
+		).toBe("font/woff2");
+		// the home page stays script-free and frames the demo
+		const home = await app.request("/");
+		expect(home.headers.get("content-security-policy")).not.toContain(
+			"script-src",
+		);
+		expect(await home.text()).toContain('src="/demo/"');
+	});
+	it("is built from the current board page, so the site never shows stale CSS", async () => {
+		// run `bun run demo` after changing the board page. The board sits outside this package's rootDir, so read it
+		// in a child process rather than importing it.
+		const PAGE = Bun.spawnSync([
+			process.execPath,
+			"-e",
+			'process.stdout.write(require("../board/src/page").PAGE)',
+		]).stdout.toString();
+		const css = PAGE.slice(PAGE.indexOf("<style>"), PAGE.indexOf("</style>"));
+		expect(await (await app.request("/demo/")).text()).toContain(css);
+	});
+});
+
+describe("Mac download", () => {
+	it("links the home page to the newest release's Mac app", async () => {
+		const html = await (await app.request("/")).text();
+		expect(html).toContain(
+			'href="https://github.com/flisk-sh/run-my-agents/releases/latest/download/Run-My-Agents-macOS.zip"',
+		);
+		expect(html).toContain("Download for macOS");
+	});
+});
+
+describe("hero", () => {
+	it("puts the kitchen behind the hero and makes the Mac download the main button", async () => {
+		const html = await (await app.request("/")).text();
+		expect(html).toContain('class="herobg"');
+		expect(html.indexOf('class="dlb"')).toBeLessThan(
+			html.indexOf('class="install"'),
+		);
+		const img = await app.request("/hero-kitchen.jpg");
+		expect(img.status).toBe(200);
+		expect(img.headers.get("content-type")).toBe("image/jpeg");
+	});
+});
+
+describe("Kitchen Rush game", () => {
+	it("serves the game with a script-only policy and links it from the nav", async () => {
+		const res = await app.request("/play");
+		expect(res.status).toBe(200);
+		expect(res.headers.get("content-security-policy")).toContain(
+			"script-src 'unsafe-inline'",
+		);
+		const html = await res.text();
+		expect(html).toContain("KITCHEN RUSH");
+		// shipping is not binary: flaky tests let slip away are counted on the ship screen
+		expect(html).toContain("Waved through: flaky test marked done");
+		expect(html).toContain("SHIPPED, WITH DEBT");
+		expect(html).toContain("CLEAN SHIP");
+		expect(html).toContain('<canvas id="g"');
+		expect(html).toContain('name="twitter:card" content="player"');
+		expect(html).toContain('"@type":"VideoGame"');
+		// a fixed flaky test comes back once, as "marked done?"
+		expect(html).toContain("Marked done?");
+		// the HUD and end screens show how many returning flaky tests were really fixed
+		expect(html).toContain("Catch rate ");
+		expect(html).toContain('waved through "+waved');
+		expect(html).toContain('content="https://tool.test/play/card.png"');
+		expect(res.headers.get("content-security-policy")).toContain(
+			"https://x.com",
+		);
+		const card = await app.request("/play/card.png");
+		expect(card.headers.get("content-type")).toBe("image/png");
+		expect(await (await app.request("/")).text()).toContain('/play">Play</a>');
+		expect(await (await app.request("/sitemap.xml")).text()).toContain("/play");
+	});
+});
