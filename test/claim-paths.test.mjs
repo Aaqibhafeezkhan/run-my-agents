@@ -88,6 +88,29 @@ test(
   },
 );
 
+test(
+  "two sessions editing a new file share a claim across file creation",
+  { skip: process.platform !== "win32" && process.platform !== "darwin" },
+  (t) => {
+    const root = mkdtempSync(join(tmpdir(), "rma-claims-"));
+    const real = join(root, "real");
+    mkdirSync(real);
+    if (!existsSync(real.toUpperCase())) {
+      t.skip("temporary filesystem is case-sensitive");
+      return;
+    }
+    const file = join(real, "MyComponent.tsx");
+
+    assert.equal(runHook(root, "aaaa1111", file), "");
+    writeFileSync(file, "export const MyComponent = () => null;");
+    const out = runHook(root, "bbbb2222", file);
+    assert.ok(
+      out.includes('"deny"'),
+      `expected a deny for session B editing after file creation, got: "${out}"`,
+    );
+  },
+);
+
 test("warnings show the file symlink name rather than its target name", (t) => {
   const root = mkdtempSync(join(tmpdir(), "rma-claims-"));
   const target = join(root, "real.ts");

@@ -91,16 +91,14 @@ function lock() {
  * creates it), so resolve the real parent and normalize the missing leaf too.
  */
 function canonical(file) {
+  let resolved;
   try {
-    return realpathSync.native(file);
+    resolved = realpathSync.native(file);
   } catch {
     const parent = dirname(file);
-    if (parent === file) return file;
-    const name = basename(file);
-    const foldedName =
-      process.platform === "win32" || process.platform === "darwin" ? name.toLowerCase() : name;
-    return join(canonical(parent), foldedName);
+    resolved = parent === file ? file : join(canonical(parent), basename(file));
   }
+  return process.platform === "win32" || process.platform === "darwin" ? resolved.toLowerCase() : resolved;
 }
 
 function readJson(path, fallback) {
