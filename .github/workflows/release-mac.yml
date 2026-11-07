@@ -1,6 +1,7 @@
 # Builds the Mac app for a release and attaches it, so the website's "Download for macOS" link
 # (releases/latest/download/Run-My-Agents-macOS.zip) always serves the newest board. Runs when a v* tag is
-# pushed, or by hand for an existing tag.
+# pushed, by hand for an existing tag, and on every merge to main that changes the board, the hooks or the app: that
+# one picks the next patch version (v0.1.9 -> v0.1.10) and releases it, and installed apps update themselves to it.
 #
 # With the Apple secrets set (docs/MAC_NOTARIZATION.md) the app is signed with a Developer ID certificate,
 # notarized by Apple and stapled, so it opens on any Mac with no prompt. Without them it is ad-hoc signed as before,
@@ -10,6 +11,8 @@ name: Release | Mac app
 on:
   push:
     tags: ["v*"]
+    branches: [main]
+    paths: ["services/app/board/**", "hooks/**", "mac/**", ".github/workflows/release-mac.yml"]
   workflow_dispatch:
     inputs:
       tag:
@@ -18,6 +21,11 @@ on:
 
 permissions:
   contents: write
+
+# One release at a time, so two quick merges do not both pick the same next version.
+concurrency:
+  group: release-mac
+  cancel-in-progress: false
 
 jobs:
   mac:
@@ -28,6 +36,13 @@ jobs:
       TAG: ${{ inputs.tag || github.ref_name }}
       GH_TOKEN: ${{ github.token }}
     steps:
+      - name: Pick the next version (merge to main)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          last="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name 2>/dev/null || echo v0.0.0)"
+          IFS=. read -r major minor patch <<< "${last#v}"
+          echo "TAG=v$major.$minor.$((patch + 1))" >> "$GITHUB_ENV"
+          echo "Releasing v$major.$minor.$((patch + 1)) (after $last)"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ inputs.tag || github.ref }}
@@ -82,5 +97,5 @@ jobs:
           xcrun stapler validate "mac/build/Run My Agents.app"
       - name: Attach to the release
         run: |
-          gh release view "$TAG" > /dev/null 2>&1 || gh release create "$TAG" --title "Run My Agents ${TAG#v}" --generate-notes
+          gh release view "$TAG" > /dev/null 2>&1 || gh release create "$TAG" --target "$GITHUB_SHA" --title "Run My Agents ${TAG#v}" --generate-notes
           gh release upload "$TAG" mac/build/Run-My-Agents-macOS.zip --clobber

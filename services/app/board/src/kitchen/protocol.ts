@@ -82,10 +82,16 @@ export function clip(text: string, max = 6000): string {
 	return `${text.slice(0, head)}\n\n[… ${text.length - max} characters cut …]\n\n${text.slice(-(max - head))}`;
 }
 
-/** What a step hands the next stages: its record's handoff, or its reply without the record, head kept. */
+/**
+ * What a step hands the next stages: its reply without the record, head kept. A record's "handoff" is a summary, not
+ * the spec: when the reply holds more than the summary, the reply is handed on with the summary on top. Handing on
+ * only the summary gave Build one paragraph instead of the Spec agent's 80-line spec (order #88).
+ */
 export function handOffOf(text: string, max = 6000): string {
 	const r = recordIn(text);
-	const body = r?.handoff ?? withoutRecord(text);
+	const prose = withoutRecord(text);
+	const sum = r?.handoff ?? "";
+	const body = !sum ? prose : prose.length <= sum.length ? sum : prose.includes(sum) ? prose : `Summary: ${sum}\n\n${prose}`;
 	const verdict = r?.verdict ? `\n\nVerdict: ${r.verdict}${r.evidence ? `: ${r.evidence}` : ""}` : "";
 	return clip(body, max) + verdict;
 }
