@@ -5,6 +5,11 @@ import WebKit
 let port = 4100
 let boardURL = URL(string: "http://127.0.0.1:\(port)/")!
 let healthURL = URL(string: "http://127.0.0.1:\(port)/health")!
+// Where updates come from: the latest GitHub release and its Mac zip (built by .github/workflows/release-mac.yml).
+let releaseAPI = URL(string: "https://api.github.com/repos/flisk-sh/run-my-agents/releases/latest")!
+let zipName = "Run-My-Agents-macOS.zip"
+/** How often a running app looks for a new release. */
+let updateEvery: TimeInterval = 6 * 60 * 60
 // BAKED_BOARD_DIR is replaced by build.sh
 let bakedBoardDir = "__BAKED_BOARD_DIR__"
 
@@ -13,12 +18,214 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
   var web: WKWebView!
   var statusItem: NSStatusItem!
   var server: Process?
+  var updateItem: NSMenuItem!
+  /** A downloaded, checked release waiting to replace this app: on quit, or now from the menu. */
+  var staged: (app: URL, version: String)?
+  var checking = false
 
   func applicationDidFinishLaunching(_ n: Notification) {
     NSApp.appearance = NSAppearance(named: .darkAqua)
     buildMenu(); buildWindow(); buildStatusItem()
     web.loadHTMLString(page("Starting board…", ""), baseURL: nil)
-    DispatchQueue.global().async { self.ensureServer() }
+    DispatchQueue.global().async {
+      // Before the board starts, nothing is cooking yet: the best moment to update.
+      if self.selfUpdates() {
+        if self.checkRelease(manual: false, installNow: true, wait: 8) { return }
+      } else {
+        self.pullCheckout(manual: false)
+      }
+      self.ensureServer()
+    }
+    Timer.scheduledTimer(withTimeInterval: updateEvery, repeats: true) { [weak self] _ in
+      guard let self, self.selfUpdates() else { return }
+      // While it runs, download and stage only: restarting would kill the board mid-order. It installs on quit.
+      DispatchQueue.global().async { self.checkRelease(manual: false, installNow: false, wait: 60) }
+    }
+  }
+
+  // MARK: updates
+  var version: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0" }
+
+  /** A released app (the board compiled in) updates itself; a dev build runs the board from a checkout instead. */
+  func selfUpdates() -> Bool {
+    let env = ProcessInfo.processInfo.environment
+    guard env["RUN_MY_AGENTS_NO_UPDATE"] == nil, env["RUN_MY_AGENTS_BOARD"] == nil,
+          Bundle.main.url(forResource: "board", withExtension: nil) != nil else { return false }
+    return FileManager.default.isWritableFile(atPath: (Bundle.main.bundlePath as NSString).deletingLastPathComponent)
+  }
+
+  /** 0.1.10 is newer than 0.1.9: compare the numbers, not the text. */
+  static func newer(_ a: String, than b: String) -> Bool {
+    let n = { (s: String) in s.split(separator: ".").map { Int($0.prefix { $0.isNumber }) ?? 0 } }
+    let x = n(a), y = n(b)
+    for i in 0..<max(x.count, y.count) {
+      let l = i < x.count ? x[i] : 0, r = i < y.count ? y[i] : 0
+      if l != r { return l > r }
+    }
+    return false
+  }
+
+  @discardableResult
+  func run(_ tool: String, _ args: [String], in dir: String? = nil) -> (ok: Bool, out: String) {
+    let p = Process(); let pipe = Pipe()
+    p.executableURL = URL(fileURLWithPath: tool); p.arguments = args
+    if let dir { p.currentDirectoryURL = URL(fileURLWithPath: dir) }
+    var env = ProcessInfo.processInfo.environment
+    env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    p.environment = env
+    p.standardOutput = pipe; p.standardError = pipe
+    do { try p.run() } catch { return (false, error.localizedDescription) }
+    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    p.waitUntilExit()
+    return (p.terminationStatus == 0, String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
+  }
+
+  func tell(_ title: String, _ text: String) {
+    DispatchQueue.main.async {
+      let a = NSAlert(); a.messageText = title; a.informativeText = text
+      NSApp.activate(ignoringOtherApps: true); a.runModal()
+    }
+  }
+
+  func setUpdateTitle(_ t: String) { DispatchQueue.main.async { self.updateItem?.title = t } }
+
+  /**
+   * Looks at the latest release. When it is newer, downloads its zip, unpacks and checks the app in it, and either
+   * installs it now (relaunching) or keeps it staged until quit. Blocks the calling (background) thread. True when it
+   * is installing now and the app is about to quit.
+   */
+  @discardableResult
+  func checkRelease(manual: Bool, installNow: Bool, wait: TimeInterval) -> Bool {
+    if checking { return false }
+    if staged != nil {
+      if manual { DispatchQueue.main.async { self.installStaged(relaunch: true) } }
+      return false
+    }
+    checking = true; defer { checking = false; if staged == nil { setUpdateTitle("Check for Updates…") } }
+    setUpdateTitle("Checking for updates…")
+    var req = URLRequest(url: releaseAPI); req.timeoutInterval = wait
+    req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+    req.setValue("RunMyAgents/\(version)", forHTTPHeaderField: "User-Agent")
+    let sem = DispatchSemaphore(value: 0); var body: Data?
+    URLSession.shared.dataTask(with: req) { d, r, _ in if (r as? HTTPURLResponse)?.statusCode == 200 { body = d }; sem.signal() }.resume()
+    _ = sem.wait(timeout: .now() + wait + 1)
+    guard let body, let j = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+          let tag = j["tag_name"] as? String, let assets = j["assets"] as? [[String: Any]],
+          let link = assets.first(where: { ($0["name"] as? String) == zipName })?["browser_download_url"] as? String,
+          let zipURL = URL(string: link) else {
+      if manual { tell("Could not check for updates", "GitHub did not answer with the latest release.") }
+      return false
+    }
+    let latest = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
+    guard Self.newer(latest, than: version) else {
+      if manual { tell("Run My Agents is up to date", "You have version \(version), the latest release.") }
+      return false
+    }
+    setUpdateTitle("Downloading v\(latest)…")
+    guard let app = download(zipURL, timeout: max(wait, 600)) else {
+      if manual { tell("Update failed", "Could not download or verify v\(latest). The app was not changed.") }
+      return false
+    }
+    staged = (app, latest)
+    setUpdateTitle("Restart to Update to v\(latest)")
+    guard installNow || manual else { return false }
+    DispatchQueue.main.sync { self.installStaged(relaunch: true) }
+    return true
+  }
+
+  /** The release zip, downloaded and unpacked to a temporary folder; nil unless it holds a whole, validly signed app. */
+  func download(_ url: URL, timeout: TimeInterval) -> URL? {
+    let fm = FileManager.default
+    let work = fm.temporaryDirectory.appendingPathComponent("run-my-agents-update-\(UUID().uuidString)")
+    try? fm.createDirectory(at: work, withIntermediateDirectories: true)
+    let zip = work.appendingPathComponent(zipName)
+    var req = URLRequest(url: url); req.timeoutInterval = timeout
+    let sem = DispatchSemaphore(value: 0); var ok = false
+    URLSession.shared.downloadTask(with: req) { tmp, r, _ in
+      if let tmp, (r as? HTTPURLResponse)?.statusCode == 200 { ok = (try? fm.moveItem(at: tmp, to: zip)) != nil }
+      sem.signal()
+    }.resume()
+    _ = sem.wait(timeout: .now() + timeout + 5)
+    guard ok, run("/usr/bin/ditto", ["-x", "-k", zip.path, work.path]).ok else { return nil }
+    let app = work.appendingPathComponent("Run My Agents.app")
+    guard fm.fileExists(atPath: app.appendingPathComponent("Contents/Resources/board").path),
+          fm.fileExists(atPath: app.appendingPathComponent("Contents/MacOS/RunMyAgents").path),
+          run("/usr/bin/codesign", ["--verify", "--deep", "--strict", app.path]).ok else { return nil }
+    run("/usr/bin/xattr", ["-dr", "com.apple.quarantine", app.path])
+    return app
+  }
+
+  /**
+   * Swaps the staged app in for this one. A detached shell waits for this process to exit, moves the old bundle
+   * aside, moves the new one in (putting the old one back if that fails) and opens it again when asked to.
+   */
+  func installStaged(relaunch: Bool) {
+    guard let s = staged else { return }
+    staged = nil
+    let script = """
+    while kill -0 "$RMA_PID" 2>/dev/null; do sleep 0.2; done
+    old="$RMA_TARGET.old-update"; rm -rf "$old"
+    if mv "$RMA_TARGET" "$old"; then
+      if mv "$RMA_NEW" "$RMA_TARGET"; then rm -rf "$old"; else mv "$old" "$RMA_TARGET"; fi
+    fi
+    [ "$RMA_RELAUNCH" = 1 ] && open "$RMA_TARGET"
+    """
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: "/bin/sh"); p.arguments = ["-c", script]
+    var env = ProcessInfo.processInfo.environment
+    env["RMA_PID"] = "\(ProcessInfo.processInfo.processIdentifier)"
+    env["RMA_TARGET"] = Bundle.main.bundlePath
+    env["RMA_NEW"] = s.app.path
+    env["RMA_RELAUNCH"] = relaunch ? "1" : "0"
+    p.environment = env
+    do { try p.run() } catch { return }
+    if relaunch { NSApp.terminate(nil) }
+  }
+
+  /**
+   * A dev build runs the board from its checkout, so updating it means pulling: only a clean checkout on main, and
+   * only a fast-forward, so local work is never touched. Before the board starts, or by hand from the menu.
+   */
+  func pullCheckout(manual: Bool) {
+    let dir = ProcessInfo.processInfo.environment["RUN_MY_AGENTS_BOARD"] ?? bakedBoardDir
+    guard ProcessInfo.processInfo.environment["RUN_MY_AGENTS_NO_UPDATE"] == nil,
+          FileManager.default.fileExists(atPath: dir) else { return }
+    let git = { (a: [String]) in self.run("/usr/bin/env", ["git", "-C", dir] + a) }
+    let branch = git(["rev-parse", "--abbrev-ref", "HEAD"]).out
+    guard branch == "main" else {
+      if manual { tell("Not updated", "The board's checkout is on \(branch.isEmpty ? "no branch" : branch), not main. Switch to main to update it.") }
+      return
+    }
+    guard git(["status", "--porcelain", "--untracked-files=no"]).out.isEmpty else {
+      if manual { tell("Not updated", "The board's checkout has local changes. Commit or stash them, then try again.") }
+      return
+    }
+    let before = git(["rev-parse", "HEAD"]).out
+    let pull = git(["pull", "--ff-only", "--quiet"])
+    let after = git(["rev-parse", "HEAD"]).out
+    if pull.ok && before != after { run("/usr/bin/env", ["bun", "install"], in: dir) }
+    guard manual else { return }
+    if !pull.ok { return tell("Update failed", pull.out) }
+    if before == after { return tell("Run My Agents is up to date", "The checkout is at the latest main.") }
+    restartBoard()
+    tell("Updated", "Pulled the latest main and restarted the board.")
+  }
+
+  @objc func checkForUpdates() {
+    DispatchQueue.global().async {
+      if self.selfUpdates() { self.checkRelease(manual: true, installNow: true, wait: 30) } else { self.pullCheckout(manual: true) }
+    }
+  }
+
+  /** Stops the board this app started and starts it again, so it runs the code on disk now. */
+  @objc func restartBoard() {
+    DispatchQueue.global().async {
+      if let s = self.server, s.isRunning { s.terminate(); s.waitUntilExit() }
+      self.server = nil
+      DispatchQueue.main.async { self.web.loadHTMLString(self.page("Restarting board…", ""), baseURL: nil) }
+      self.ensureServer()
+    }
   }
 
   // MARK: server
@@ -89,6 +296,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
   func applicationWillTerminate(_ n: Notification) {
     if let s = server, s.isRunning { s.terminate(); s.waitUntilExit() }
+    // A release downloaded while the app ran goes in now, so the next launch is the new version.
+    installStaged(relaunch: false)
   }
 
   // MARK: UI
@@ -186,6 +395,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     let m = NSMenu()
     m.addItem(withTitle: "Open board", action: #selector(showWindow), keyEquivalent: "")
     m.addItem(withTitle: "Reload", action: #selector(reload), keyEquivalent: "")
+    m.addItem(withTitle: "Restart Board", action: #selector(restartBoard), keyEquivalent: "")
+    updateItem = m.addItem(withTitle: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
     m.addItem(.separator())
     m.addItem(withTitle: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
     statusItem.menu = m
@@ -202,7 +413,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     let main = NSMenu()
     func sub(_ title: String, _ items: [NSMenuItem]) { let i = NSMenuItem(); let m = NSMenu(title: title); items.forEach(m.addItem); i.submenu = m; main.addItem(i) }
     func it(_ t: String, _ a: Selector?, _ k: String, _ mods: NSEvent.ModifierFlags = .command) -> NSMenuItem { let i = NSMenuItem(title: t, action: a, keyEquivalent: k); i.keyEquivalentModifierMask = mods; return i }
-    sub("Run My Agents", [it("About Run My Agents", #selector(NSApplication.orderFrontStandardAboutPanel(_:)), ""), .separator(),
+    sub("Run My Agents", [it("About Run My Agents", #selector(NSApplication.orderFrontStandardAboutPanel(_:)), ""),
+      it("Check for Updates…", #selector(checkForUpdates), ""), .separator(),
       it("Hide Run My Agents", #selector(NSApplication.hide(_:)), "h"), .separator(),
       it("Quit Run My Agents", #selector(NSApplication.terminate(_:)), "q")])
     sub("File", [it("Close Window", #selector(NSWindow.performClose(_:)), "w")])

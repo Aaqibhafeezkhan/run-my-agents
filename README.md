@@ -97,8 +97,11 @@ curl -fsSL https://run-my-agents.flisk.si/install.sh | sh
 ```
 
 It downloads the [latest release](https://github.com/flisk-sh/run-my-agents/releases/latest), puts the app in
-`/Applications` and opens it. Run it again to update. The board is built in, so it needs no Bun, Docker, Tilt or
-Flisk. Every `v*` tag builds and attaches a new release (`.github/workflows/release-mac.yml`).
+`/Applications` and opens it. The board is built in, so it needs no Bun, Docker, Tilt or Flisk. Every `v*` tag, and
+every merge to main that changes the board, hooks or app, builds and attaches a new release
+(`.github/workflows/release-mac.yml`). The app updates itself: on launch it installs a newer release before the board
+starts, and while it runs it downloads one every 6 hours and installs it when you quit (or now, from **Check for
+Updates…** in the menu bar item). `RUN_MY_AGENTS_NO_UPDATE=1` turns that off.
 
 The app is not notarized by Apple (that needs a paid developer account), so macOS blocks it when you download the
 zip in a browser, with "damaged" or "could not verify". The command above avoids that, because a file `curl` saves is

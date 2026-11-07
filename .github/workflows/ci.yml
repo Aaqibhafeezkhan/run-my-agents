@@ -77,6 +77,17 @@ jobs:
           curl -sf http://127.0.0.1:4799/ | grep -q preact || { cat "$RUNNER_TEMP/board.log"; exit 1; }
           curl -sf http://127.0.0.1:4799/api/sessions > /dev/null
 
+  mac:
+    name: Mac app compiles
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      # The release workflow only runs on main, so a Swift error would otherwise surface after the merge.
+      - run: swiftc -typecheck -target arm64-apple-macos13.0 mac/RunMyAgents.swift -framework AppKit -framework WebKit
+
   image:
     name: Production image
     runs-on: ubuntu-latest

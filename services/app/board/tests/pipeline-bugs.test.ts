@@ -428,6 +428,25 @@ describe("kitchen pipeline bugs", () => {
 		expect(verdictIn("PASS looks fine. Wait, FAIL: the date check returns 2013.")).toBeUndefined();
 	});
 
+	it("#88: Build gets the whole spec, not only the one-line handoff summary in the spec's record", async () => {
+		const { handOffOf } = await import("../src/kitchen/protocol");
+		const steps = Array.from({ length: 40 }, (_, i) => `${i + 1}. In src/math.ts change line ${i + 1}; run bun test tests/math.test.ts`).join("\n");
+		const reply = `## Goal\nFix range.\n\n## Steps\n${steps}\n\n\`\`\`kitchen\n{"handoff": "Spec for #88: fix range in src/math.ts."}\n\`\`\``;
+		const out = handOffOf(reply, 16000);
+		expect(out).toContain("40. In src/math.ts change line 40");
+		expect(out).toContain("Spec for #88: fix range in src/math.ts.");
+		expect(out).not.toContain("```kitchen");
+		// A record whose handoff is the whole content still hands that on.
+		expect(handOffOf('Done.\n\n```kitchen\n{"handoff": "Goal: fix range. Steps: 1. edit src/math.ts"}\n```')).toBe("Goal: fix range. Steps: 1. edit src/math.ts");
+	});
+
+	it("#88: the spec brief asks for a detailed spec with code-level sections, not a short one", async () => {
+		const { STAGE_BRIEF } = await import("../src/kitchen/routes");
+		expect(STAGE_BRIEF.spec).not.toContain("short spec");
+		for (const h of ["## Current behaviour", "## Baseline", "## Acceptance checks", "## Files to change", "## Steps", "## Out of scope", "## Assumptions"]) expect(STAGE_BRIEF.spec).toContain(h);
+		expect(STAGE_BRIEF.spec).toContain("Never squeeze the spec into the record's");
+	});
+
 	it("#187: a build round that changes nothing after Ship committed the last one is caught", async () => {
 		let builds = 0;
 		let reviews = 0;

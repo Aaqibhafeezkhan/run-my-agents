@@ -591,7 +591,7 @@ describe("stage hand-off", () => {
 		await post("/api/containers/reconcile", {});
 		order({ stage: "spec", approved: false, title: "add retries to the upload client so flaky networks recover", zachman: undefined });
 		await post("/api/tasks/dispatch", { id: "t" });
-		expect(sent.at(-1)).toContain("Your job: Write a short spec");
+		expect(sent.at(-1)).toContain("Your job: Write the spec the next agents will build");
 		// The Spec agent answers; serving keeps its reply as the spec.
 		cook.feed = [...cook.feed, { who: "agent", text: "Goal: retry uploads 3 times. Checks: 1) a failed upload is retried.", at: Date.now() } as never];
 		await post("/api/tasks/serve", { id: "t" });
