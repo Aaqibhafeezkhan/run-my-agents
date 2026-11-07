@@ -17,7 +17,7 @@ addEventListener("pointerup",()=>{joy=null});
 const COOKS=[{n:"Spec cook",c:"#38bdf8",k:"spec",d:"Orbits you and slices what it touches"},{n:"Build cook",c:"#f59e0b",k:"build",d:"Throws hot pans of its own"},{n:"Review cook",c:"#a78bfa",k:"review",d:"Rejects every bug near it, often"}];
 const UPS=[{n:"Faster pans",d:"Throw 25% faster",f:p=>p.rate*=.75},{n:"Heavier pans",d:"+1 damage",f:p=>p.dmg++},{n:"Extra pan",d:"+1 pan per throw",f:p=>p.multi++},{n:"Running shoes",d:"Move 15% faster",f:p=>p.spd*=1.15},{n:"Coffee",d:"Heal and +20 max health",f:p=>{p.max+=20;p.hp=p.max}},{n:"Big magnet",d:"Pick tickets from further",f:p=>p.mag*=1.4}];
 let st="title",P,E,B,T,F,cooks,t,lvl,xp,need,kills,waved,caught,choice,last,spawnT,boss,shake;
-function reset(){P={x:0,y:0,hp:100,max:100,spd:170,rate:.7,cd:0,dmg:1,multi:1,mag:70,hurt:0,face:1};E=[];B=[];T=[];F=[];cooks=[];t=0;lvl=1;xp=0;need=5;kills=0;waved=0;caught=0;choice=null;spawnT=0;boss=0;shake=0}
+function reset(){P={x:0,y:0,hp:130,max:130,spd:180,rate:.55,cd:0,dmg:2,multi:1,mag:100,hurt:0,face:1};E=[];B=[];T=[];F=[];cooks=[];t=0;lvl=1;xp=0;need=4;kills=0;waved=0;caught=0;choice=null;spawnT=0;boss=0;shake=0}
 function tap(e){if(st==="title"||st==="dead"||st==="won"){reset();st="play";last=performance.now();return}
  if(st==="up"&&e){const i=pick(e.clientX,e.clientY);if(i>=0)choose(i)}}
 addEventListener("keydown",e=>{if(st==="up"&&"123".includes(e.key))choose(+e.key-1)});
@@ -25,9 +25,9 @@ const catchPct=()=>caught+waved?Math.round(caught/(caught+waved)*100)+"%":"",rat
 const rnd=(a,b)=>a+Math.random()*(b-a);
 function spawn(){const a=rnd(0,7),r=Math.max(W,H)/2+60,m=t/60;
  const kind=Math.random()<.12+m*.04?"conflict":Math.random()<.35?"flaky":"bug";
- const s={bug:{hp:2+m,sp:rnd(55,75)+m*6,r:9,c:"#ef4444",xp:1},flaky:{hp:3+m*1.5,sp:rnd(80,105)+m*6,r:8,c:"#facc15",xp:2},conflict:{hp:12+m*4,sp:40+m*4,r:16,c:"#fb7185",xp:5}}[kind];
+ const s={bug:{hp:1+m*.7,sp:rnd(50,68)+m*4,r:9,c:"#ef4444",xp:1},flaky:{hp:2+m,sp:rnd(70,95)+m*4,r:8,c:"#facc15",xp:2},conflict:{hp:8+m*2.5,sp:36+m*3,r:16,c:"#fb7185",xp:5}}[kind];
  E.push({x:P.x+Math.cos(a)*r,y:P.y+Math.sin(a)*r,k:kind,hp:s.hp,max:s.hp,sp:s.sp,r:s.r,c:s.c,xp:s.xp,fl:0,w:rnd(0,6)})}
-function spawnBoss(){const a=rnd(0,7);E.push({x:P.x+Math.cos(a)*500,y:P.y+Math.sin(a)*500,k:"ci",hp:80+boss*60,sp:55,r:30,c:"#dc2626",xp:30,fl:0,w:0});boss++;F.push({x:P.x,y:P.y-60,s:"CI went red!",l:2,c:"#f87171"})}
+function spawnBoss(){const a=rnd(0,7);E.push({x:P.x+Math.cos(a)*500,y:P.y+Math.sin(a)*500,k:"ci",hp:50+boss*35,sp:48,r:30,c:"#dc2626",xp:30,fl:0,w:0});boss++;F.push({x:P.x,y:P.y-60,s:"CI went red!",l:2,c:"#f87171"})}
 function near(x0,y0,max){let b=null,bd=max*max;for(const e of E){const d=(e.x-x0)**2+(e.y-y0)**2;if(d<bd){bd=d;b=e}}return b}
 function throwFrom(o,n,dmg){const e=near(o.x,o.y,420);if(!e)return;for(let i=0;i<n;i++){const a=Math.atan2(e.y-o.y,e.x-o.x)+(i-(n-1)/2)*.22;B.push({x:o.x,y:o.y,vx:Math.cos(a)*380,vy:Math.sin(a)*380,l:1.2,d:dmg,s:0})}}
 function hit(e,d){if(e.inv>0)return;e.hp-=d;e.fl=.1;F.push({x:e.x,y:e.y-e.r,s:String(d),l:.5,c:"#fff"});
@@ -39,7 +39,7 @@ function choose(i){const c=choice[i];if(!c)return;if(c.cook)cooks.push({k:c.k,c:
 function step(dt){t+=dt;let mx=(keys.d||keys.arrowright?1:0)-(keys.a||keys.arrowleft?1:0),my=(keys.s||keys.arrowdown?1:0)-(keys.w||keys.arrowup?1:0);
  if(joy){const dx=joy.x-joy.x0,dy=joy.y-joy.y0,l=Math.hypot(dx,dy);if(l>8){mx=dx/l;my=dy/l}}
  const l=Math.hypot(mx,my);if(l){P.x+=mx/l*P.spd*dt;P.y+=my/l*P.spd*dt;if(mx)P.face=Math.sign(mx)}
- spawnT-=dt;const rate=Math.max(.12,1.1-t/90);while(spawnT<=0){spawn();spawnT+=rate}
+ spawnT-=dt;const rate=Math.max(.3,1.3-t/110);while(spawnT<=0){spawn();spawnT+=rate}
  if(t>=60*(boss+1)&&boss<4)spawnBoss();
  P.cd-=dt;if(P.cd<=0){throwFrom(P,P.multi,P.dmg);P.cd=P.rate}
  for(const k of cooks){if(k.k==="spec"){k.a+=dt*3;k.x=P.x+Math.cos(k.a)*70;k.y=P.y+Math.sin(k.a)*70;k.cd-=dt;if(k.cd<=0){for(const e of E)if(Math.hypot(e.x-k.x,e.y-k.y)<e.r+14)hit(e,2+Math.floor(lvl/4));k.cd=.25}}
@@ -50,11 +50,11 @@ function step(dt){t+=dt;let mx=(keys.d||keys.arrowright?1:0)-(keys.a||keys.arrow
  B=B.filter(b=>b.l>0);
  for(const e of E){const dx=P.x-e.x,dy=P.y-e.y,d=Math.hypot(dx,dy)||1;let sp=e.sp;if(e.re){e.x-=dx/d*sp*.35*dt;e.y-=dy/d*sp*.35*dt;e.fl-=dt;e.inv-=dt;
    if(d>Math.max(W,H)*.6+80){e.hp=0;waved++;F.push({x:P.x,y:P.y-50,s:"Waved through: flaky test marked done",l:2,c:"#fb923c"})}continue}if(e.k==="flaky"){e.w+=dt*6;sp*=.7+Math.abs(Math.sin(e.w))*.8}
-  e.x+=dx/d*sp*dt;e.y+=dy/d*sp*dt;e.fl-=dt;e.inv-=dt;if(d<e.r+12&&P.hurt<=0){P.hp-=e.k==="ci"?20:e.k==="conflict"?12:7;P.hurt=.5;shake=.2}}
+  e.x+=dx/d*sp*dt;e.y+=dy/d*sp*dt;e.fl-=dt;e.inv-=dt;if(d<e.r+12&&P.hurt<=0){P.hp-=e.k==="ci"?14:e.k==="conflict"?8:5;P.hurt=.7;shake=.2}}
  E=E.filter(e=>e.hp>0);P.hurt-=dt;shake-=dt;
  for(const k of T){const d=Math.hypot(P.x-k.x,P.y-k.y);if(d<P.mag){k.x+=(P.x-k.x)*dt*8;k.y+=(P.y-k.y)*dt*8}if(d<14){xp+=k.v;k.v=0}}
  T=T.filter(k=>k.v>0);for(const f of F){f.l-=dt;f.y-=dt*30}F=F.filter(f=>f.l>0);
- if(xp>=need){xp-=need;lvl++;need=Math.floor(need*1.35+3);choice=offer();st="up"}
+ if(xp>=need){xp-=need;lvl++;need=Math.floor(need*1.25+2);choice=offer();st="up"}
  if(P.hp<=0){st="dead"}if(t>=WIN){st="won"}}
 function tile(){const s=40;x.fillStyle="#3b2f2a";x.fillRect(0,0,W,H);const gx0=Math.floor((P.x-W/2)/s)-1,gy0=Math.floor((P.y-H/2)/s)-1;
  for(let i=0;i<W/s+3;i++)for(let j=0;j<H/s+3;j++){const gx=gx0+i,gy=gy0+j,X=Math.round(gx*s-P.x+W/2),Y=Math.round(gy*s-P.y+H/2);
@@ -79,7 +79,7 @@ function draw(){const sx=shake>0?rnd(-4,4):0,sy=shake>0?rnd(-4,4):0;x.save();x.t
   if(e.k==="bug"){px(ex,ey,c,16,12);px(ex-9,ey-3,c,4,2);px(ex+9,ey-3,c,4,2);px(ex-9,ey+3,c,4,2);px(ex+9,ey+3,c,4,2);px(ex-3,ey-3,"#111",3,3);px(ex+3,ey-3,"#111",3,3)}
   else if(e.k==="flaky"){px(ex,ey,c,14,14);px(ex,ey,"#111",4,8);px(ex,ey+5,"#111",4,2)}
   else if(e.k==="conflict"){px(ex,ey,c,30,26);x.fillStyle="#111";x.font="bold 10px monospace";x.textAlign="center";x.fillText("<<<",ex,ey-2);x.fillText(">>>",ex,ey+9)}
-  else{px(ex,ey,c,58,50);px(ex,ey-8,"#111",36,10);x.fillStyle="#fecaca";x.font="bold 14px monospace";x.textAlign="center";x.fillText("CI",ex,ey+16);px(ex,ey-30,"#7f1d1d",58*Math.max(0,e.hp)/(80+(boss-1)*60),4)}}
+  else{px(ex,ey,c,58,50);px(ex,ey-8,"#111",36,10);x.fillStyle="#fecaca";x.font="bold 14px monospace";x.textAlign="center";x.fillText("CI",ex,ey+16);px(ex,ey-30,"#7f1d1d",58*Math.max(0,e.hp)/(50+(boss-1)*35),4)}}
  for(const b of B){x.save();x.translate(b.x+ox,b.y+oy);x.rotate(b.s);px(0,0,"#9ca3af",12,12);px(9,0,"#6b7280",8,3);x.restore()}
  for(const k of cooks){if(k.k==="review"){x.strokeStyle="rgba(167,139,250,.18)";x.beginPath();x.arc(k.x+ox,k.y+oy,110,0,7);x.stroke()}chef(k.x+ox,k.y+oy,k.c,1,1)}
  if(P.hurt<=0||Math.floor(t*20)%2)chef(W/2,H/2,"#22c55e",1,P.face);
