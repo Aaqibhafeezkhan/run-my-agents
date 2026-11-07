@@ -11,6 +11,7 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const DIR = process.env.RUN_MY_AGENTS_DIR || join(homedir(), ".run-my-agents");
 const FILE = join(DIR, "claims.json");
@@ -86,19 +87,18 @@ function lock() {
 
 /**
  * The key a claim is stored under. Two sessions can reach one file through a symlinked folder, or with a different
- * letter case on a case-insensitive disk (macOS), and must get the same key. The file may not exist yet (a Write
- * that creates it), so fall back to the real path of its folder.
+ * letter case on a case-insensitive disk, and must get the same key. The file may not exist yet (a Write that
+ * creates it), so resolve the real parent and normalize the missing leaf too.
  */
-function keyOf(file) {
+function canonical(file) {
+  let resolved;
   try {
-    return realpathSync.native(file);
+    resolved = realpathSync.native(file);
   } catch {
-    try {
-      return join(realpathSync.native(dirname(file)), basename(file));
-    } catch {
-      return file;
-    }
+    const parent = dirname(file);
+    resolved = parent === file ? file : join(canonical(parent), basename(file));
   }
+  return process.platform === "win32" || process.platform === "darwin" ? resolved.toLowerCase() : resolved;
 }
 
 function readJson(path, fallback) {
@@ -151,7 +151,8 @@ function main() {
   if (ignored(isAbsolute(raw) ? raw : resolve(input.cwd || process.cwd(), raw))) return debug("ignored", raw);
 
   const cwd = input.cwd || process.cwd();
-  const file = keyOf(isAbsolute(raw) ? raw : resolve(cwd, raw));
+  const requestedPath = isAbsolute(raw) ? raw : resolve(cwd, raw);
+  const file = canonical(requestedPath);
   const now = Date.now();
 
   mkdirSync(DIR, { recursive: true });
@@ -192,7 +193,7 @@ function main() {
   const drops = Math.max(1, Math.ceil((other.at + TTL_MS - now) / 60_000));
   const reason =
     `Run My Agents: another Claude session (${other.session.slice(0, 8)}${where}, in ${other.cwd}) ` +
-    `edited ${basename(file)} ${again ? "again since you were warned, " : ""}${ago(now - other.at)}. ` +
+    `edited ${basename(requestedPath)} ${again ? "again since you were warned, " : ""}${ago(now - other.at)}. ` +
     `Its claim drops in ${drops} min, or when that session ends. ` +
     "This is not a permission problem: it is a warning from the coordination hook, and the edit was not made. " +
     "Your edit could overwrite its work. Read the file again first and redo your edit on top of what is there now, " +
@@ -214,7 +215,7 @@ function main() {
 // Run only as a hook, not when a test imports ignored().
 const runAsHook = (() => {
   try {
-    return realpathSync.native(process.argv[1]) === realpathSync.native(new URL(import.meta.url).pathname);
+    return realpathSync.native(process.argv[1]) === realpathSync.native(fileURLToPath(import.meta.url));
   } catch {
     return false;
   }
