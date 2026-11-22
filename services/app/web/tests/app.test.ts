@@ -20,9 +20,11 @@ describe("pages", () => {
 			/^'sha256-[A-Za-z0-9+/=]+' https:\/\/flisk\.si https:\/\/flisk\.sh$/,
 		);
 		// the page counts visits (cookieless beacon), so the policy lets the script load and the beacon leave
-		expect(csp).toContain("connect-src https://analytics.flisk.si;");
+		expect(csp).toContain(
+			"connect-src https://analytics.flisk.si https://flisk.si;",
+		);
 		expect(await res.text()).toContain(
-			'<script defer data-domain="run-my-agents.flisk.si" src="https://flisk.sh/a.js"></script><script src="https://flisk.si/assets/bar.js" defer></script>',
+			'<script src="https://flisk.si/assets/bar.js" data-product="Run My Agents" data-icon="run-my-agents" data-accent="#22c55e" data-text="Run a team of AI coding agents on your own laptop." defer></script>',
 		);
 		// every other page keeps the strict default: only the Flisk bar script may run
 		const about = await app.request("/about");
@@ -30,7 +32,7 @@ describe("pages", () => {
 			"script-src https://flisk.si https://flisk.sh;",
 		);
 		expect(about.headers.get("content-security-policy")).toContain(
-			"connect-src https://analytics.flisk.si;",
+			"connect-src https://analytics.flisk.si https://flisk.si;",
 		);
 		expect(await about.text()).toContain(
 			'<script defer data-domain="run-my-agents.flisk.si" src="https://flisk.sh/a.js"></script>',
@@ -246,11 +248,11 @@ describe("Kitchen Rush game", () => {
 			"script-src 'unsafe-inline' https://flisk.si https://flisk.sh;",
 		);
 		expect(res.headers.get("content-security-policy")).toContain(
-			"connect-src https://analytics.flisk.si;",
+			"connect-src https://analytics.flisk.si https://flisk.si;",
 		);
 		const html = await res.text();
 		expect(html).toContain(
-			'<script defer data-domain="run-my-agents.flisk.si" src="https://flisk.sh/a.js"></script><script src="https://flisk.si/assets/bar.js" defer></script>',
+			'<script src="https://flisk.si/assets/bar.js" defer></script>',
 		);
 		expect(html).toContain("KITCHEN RUSH");
 		// shipping is not binary: flaky tests let slip away are counted on the ship screen
@@ -353,7 +355,10 @@ describe("baseline security headers", () => {
 		for (const path of ["/", "/about", "/health", "/robots.txt", "/nope"]) {
 			const res = await app.request(path);
 			expect(res.headers.get("x-content-type-options")).toBe("nosniff");
-			expect(res.headers.get("x-frame-options")).toBe("SAMEORIGIN");
+			// The home page lets analytics.flisk.si frame it (click heatmap), so it gets no X-Frame-Options.
+			expect(res.headers.get("x-frame-options")).toBe(
+				path === "/" ? null : "SAMEORIGIN",
+			);
 			expect(res.headers.get("strict-transport-security")).toBe(
 				"max-age=31536000; includeSubDomains",
 			);
