@@ -20,9 +20,10 @@ bun install
 
 ## Run the tests
 
-Run the Bun test suites from the repository root:
+Run the Bun test suite of the workspace you changed (`services/app/web`, `services/app/board` or `services/app/kitchen`) from that workspace directory:
 
 ```sh
+cd services/app/board
 bun test
 ```
 
